@@ -1,0 +1,130 @@
+{
+  "generated_at": "2026-04-04T11:30:10.513076",
+  "based_on_data_until": "2025-03-07T23:00:00",
+  "horizon_hours": 6,
+  "model_used": "LSTM+ARIMA ensemble",
+  "weights": {
+    "lstm": {
+      "temperature": 0.9698,
+      "humidity": 0.9896,
+      "wind_speed": 1.0,
+      "pressure": 0.7204,
+      "uv_index": 1.0,
+      "dewpoint": 0.8398,
+      "visibility": 0.4429,
+      "wind_direction": 0.5,
+      "precipitation": 0.5,
+      "cloud": 0.5
+    },
+    "arima": {
+      "temperature": 0.0302,
+      "humidity": 0.0104,
+      "wind_speed": 0.0,
+      "pressure": 0.2796,
+      "uv_index": 0.0,
+      "dewpoint": 0.1602,
+      "visibility": 0.5571,
+      "wind_direction": 0.5,
+      "precipitation": 0.5,
+      "cloud": 0.5
+    }
+  },
+  "target_cols": [
+    "temperature",
+    "humidity",
+    "wind_speed",
+    "pressure",
+    "uv_index",
+    "dewpoint",
+    "visibility",
+    "wind_direction",
+    "precipitation",
+    "cloud"
+  ],
+  "forecast": [
+    {
+      "timestamp": "2025-03-08T00:00:00",
+      "horizon_step": 1,
+      "temperature": 27.3532,
+      "humidity": 67.4888,
+      "wind_speed": 10.1195,
+      "pressure": 1009.1274,
+      "uv_index": 0.4196,
+      "dewpoint": 20.8161,
+      "visibility": 9.9574,
+      "wind_direction": 104.9592,
+      "precipitation": 0.0187,
+      "cloud": 63.4695
+    },
+    {
+      "timestamp": "2025-03-08T01:00:00",
+      "horizon_step": 2,
+      "temperature": 27.0404,
+      "humidity": 68.9026,
+      "wind_speed": 9.77,
+      "pressure": 1008.9367,
+      "uv_index": 0.8388,
+      "dewpoint": 20.8691,
+      "visibility": 9.9595,
+      "wind_direction": 102.5507,
+      "precipitation": 0.113,
+      "cloud": 55.7273
+    },
+    {
+      "timestamp": "2025-03-08T02:00:00",
+      "horizon_step": 3,
+      "temperature": 26.7133,
+      "humidity": 70.3652,
+      "wind_speed": 9.3502,
+      "pressure": 1008.6006,
+      "uv_index": 0.7096,
+      "dewpoint": 20.8766,
+      "visibility": 9.9739,
+      "wind_direction": 103.5737,
+      "precipitation": 0.1421,
+      "cloud": 52.6968
+    },
+    {
+      "timestamp": "2025-03-08T03:00:00",
+      "horizon_step": 4,
+      "temperature": 26.4558,
+      "humidity": 71.3586,
+      "wind_speed": 9.0181,
+      "pressure": 1008.3694,
+      "uv_index": 0.2817,
+      "dewpoint": 20.8387,
+      "visibility": 9.9506,
+      "wind_direction": 105.4859,
+      "precipitation": -0.0121,
+      "cloud": 47.8072
+    },
+    {
+      "timestamp": "2025-03-08T04:00:00",
+      "horizon_step": 5,
+      "temperature": 26.2159,
+      "humidity": 72.1682,
+      "wind_speed": 8.7498,
+      "pressure": 1008.2684,
+      "uv_index": 0.0572,
+      "dewpoint": 20.8254,
+      "visibility": 9.9452,
+      "wind_direction": 107.1168,
+      "precipitation": 0.1562,
+      "cloud": 46.8555
+    },
+    {
+      "timestamp": "2025-03-08T05:00:00",
+      "horizon_step": 6,
+      "temperature": 25.947,
+      "humidity": 73.1624,
+      "wind_speed": 8.5676,
+      "pressure": 1008.3645,
+      "uv_index": 0.937,
+      "dewpoint": 20.7903,
+      "visibility": 9.944,
+      "wind_direction": 108.4136,
+      "precipitation": 0.0578,
+      "cloud": 43.0483
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+# ===== Server Requirements =====
+flask>=3.0
+flask-cors>=4.0
+paho-mqtt>=2.0
+numpy>=1.24
+pandas>=2.0
+scikit-learn>=1.3
+torch>=2.0
+statsmodels>=0.14
+
+# ===== Edge Requirements (Raspberry Pi) =====
+# paho-mqtt>=2.0
+# numpy>=1.24
+# RPi.GPIO           # GPIO cho cảm biến
+# adafruit-dht       # DHT22 sensor
