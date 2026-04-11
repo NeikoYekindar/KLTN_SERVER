@@ -88,7 +88,7 @@ MODELS_DIR   = Path("models")
 CSV_PATH     = DATA_DIR / "last_48h.csv"
 FORECAST_PATH = DATA_DIR / "forecast_result.json"
 HISTORY_DIR  = DATA_DIR / "history"
-
+FORECAST_HISTORY_DIR = DATA_DIR / "forecast_history"
 # ============================================================
 # Global state
 # ============================================================
@@ -115,7 +115,7 @@ def init_dirs():
     DATA_DIR.mkdir(exist_ok=True)
     MODELS_DIR.mkdir(exist_ok=True)
     HISTORY_DIR.mkdir(exist_ok=True)
-
+    FORECAST_HISTORY_DIR.mkdir(exist_ok=True)
 
 # ============================================================
 # 2. Xử lý dữ liệu nhận từ MQTT
@@ -222,6 +222,19 @@ def run_inference(args):
                     latest_forecast = json.load(f)
                 n = len(latest_forecast.get('forecast', []))
                 print(f"[INFERENCE] Loaded forecast: {n} steps")
+                # Lưu bản forecast history
+                ts_hist  = datetime.now().strftime('%Y%m%d_%H%M%S')
+                hist_file = FORECAST_HISTORY_DIR / f"forecast_{ts_hist}.json"
+
+                # Thêm trường run_id và saved_at vào bản history
+                history_entry = {
+                    'run_id':   ts_hist,
+                    'saved_at': datetime.now().isoformat(),
+                    **latest_forecast,
+                }
+                with open(hist_file, 'w', encoding='utf-8') as f:
+                    json.dump(history_entry, f, ensure_ascii=False, indent=2)
+                print(f"[INFERENCE] Forecast history saved → {hist_file}")
 
             server_status['last_inference_run']  = datetime.now().isoformat()
             server_status['last_inference_time'] = round(elapsed, 2)
@@ -482,6 +495,53 @@ def _load_forecast():
         return latest_forecast
     return None
 
+# ----------------------------------------------------------
+# GET /api/forecast/history
+# Danh sách các lần dự báo (metadata, không kèm data nặng)
+# ----------------------------------------------------------
+@app.route('/api/forecast/history', methods=['GET'])
+def get_forecast_history():
+    """
+    Trả về danh sách các lần dự báo đã lưu.
+    Query params:
+        ?limit=20   — số lượng tối đa (mặc định 20)
+    """
+    limit = request.args.get('limit', 20, type=int)
+    files = sorted(FORECAST_HISTORY_DIR.glob('forecast_*.json'), reverse=True)
+
+    history = []
+    for fp in files[:limit]:
+        try:
+            with open(fp, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            history.append({
+                'run_id':        data.get('run_id', fp.stem),
+                'saved_at':      data.get('saved_at'),
+                'generated_at':  data.get('generated_at'),
+                'horizon_hours': data.get('horizon_hours'),
+                'num_steps':     len(data.get('forecast', [])),
+                #'temperature':   data.get('forecast', [{}])[1].get('temperature'),
+                'filename':      fp.name,
+            })
+        except Exception:
+            continue
+ 
+    return jsonify({'count': len(history), 'history': history})
+
+# ----------------------------------------------------------
+# GET /api/forecast/history/<run_id>
+# Chi tiết một lần dự báo cụ thể
+# ----------------------------------------------------------
+@app.route('/api/forecast/history/<run_id>', methods=['GET'])
+def get_forecast_history_detail(run_id):
+    """Trả về toàn bộ dữ liệu của một lần dự báo theo run_id."""
+    fp = FORECAST_HISTORY_DIR / f"forecast_{run_id}.json"
+    if not fp.exists():
+        return jsonify({'error': f'Forecast run_id "{run_id}" not found'}), 404
+    with open(fp, 'r', encoding='utf-8') as f:
+        return jsonify(json.load(f))
+
+
 
 # ============================================================
 # 6. Main
@@ -568,15 +628,17 @@ def main():
     # Truyền args vào Flask config để dùng trong endpoint /api/trigger
     app.config['args'] = args
 
-    print(f"\n[API] Server đang chạy tại http://{args.api_host}:{args.api_port}")
+    print(f"\n[API] Server running at http://{args.api_host}:{args.api_port}")
     print("[API] Endpoints:")
-    print("       GET  /api/forecast           — 24h dự báo đầy đủ")
-    print("       GET  /api/forecast/latest    — h+1 (1 giờ tới)")
+    print("       GET  /api/forecast           — 24h")
+    print("       GET  /api/forecast/latest    — h+1 (1 h next hour)")
     print("       GET  /api/forecast/step/<n>  — step n (1–24)")
-    print("       GET  /api/current            — dữ liệu cảm biến mới nhất")
+    print("       GET  /api/forecast/history   — list all past forecasts")
+    print("       GET  /api/forecast/history/<run_id> — detail of a past forecast")
+    print("       GET  /api/current            — data sensor latest (metadata)")
     print("       GET  /api/status             — health check")
-    print("       POST /api/trigger            — chạy inference thủ công")
-    print("       POST /api/upload_csv         — upload CSV (test không cần MQTT)\n")
+    print("       POST /api/trigger            — run inference manually (need existing CSV)")
+    print("       POST /api/upload_csv         — upload CSV (test don't need MQTT)\n")
 
     try:
         app.run(host=args.api_host, port=args.api_port, debug=False, threaded=True)

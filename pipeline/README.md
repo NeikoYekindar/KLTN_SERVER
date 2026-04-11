@@ -137,6 +137,8 @@ void OnNewForecast(ForecastResult forecast)
 | GET    | `/api/forecast`       | Toàn bộ forecast 6h            |
 | GET    | `/api/forecast/latest`| Chỉ bước h+1                   |
 | GET    | `/api/forecast/step/3`| Bước cụ thể (1-6)              |
+| GET    | `/api/forecast/history`| Danh sách dự đoán trong quá khứ            |
+| GET    | `/api/forecast/history/<run_id>`| cụ thể một dự đoán trong quá khứ              |
 | GET    | `/api/current`        | Dữ liệu sensor mới nhất        |
 | GET    | `/api/status`         | Health check                    |
 | POST   | `/api/trigger`        | Trigger inference thủ công      |
