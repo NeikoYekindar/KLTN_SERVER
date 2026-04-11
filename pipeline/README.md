@@ -191,7 +191,7 @@ python3 server/server.py \
     --inference-script-lstm server/inference_lstm_arima.py \
     --api-port 5000
 
-python3 server/server_dual_tcn.py  --broker   localhost --tcn      models/tcn_model_24h.pth   --tcn_hard models/tcn_hard_model_24h.pth     --api-port 5000
+python server/server_dual_tcn.py  --broker   localhost --tcn      models/tcn_model.pth   --tcn_hard models/tcn_hard_model.pth     --api-port 5000
 
     # ===== TCN + ARIMA =====
 curl.exe http://192.168.25.129:5000/api/tcn/forecast
