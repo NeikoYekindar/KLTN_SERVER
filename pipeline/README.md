@@ -195,6 +195,10 @@ python3 server/server.py \
 
 python server/server_dual_tcn.py  --broker   localhost --tcn      models/tcn_model.pth   --tcn_hard models/tcn_hard_model.pth     --api-port 5000
 
+# lấy cái này 
+python server/server_dual_tcn.py  --broker   localhost --tcn      models/tcn_model.pth   --tcn_hard models/tcn_hard_model.pth --classifier models/condition_classifier.pkl    --api-port 5000
+
+
     # ===== TCN + ARIMA =====
 curl.exe http://192.168.25.129:5000/api/tcn/forecast
 curl.exe http://192.168.25.129:5000/api/tcn/forecast/latest
