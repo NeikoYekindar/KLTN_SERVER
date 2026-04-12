@@ -200,6 +200,8 @@ def run_inference(args):
             '--output',   str(FORECAST_PATH),
             '--device',   args.device,
         ]
+        if args.classifier:
+            cmd.extend(['--classifier', args.classifier])
 
         print(f"\n[INFERENCE] Chạy: {' '.join(cmd)}")
         t0 = time.time()
@@ -569,6 +571,8 @@ def main():
                         help='TCN model path (.pth) — temperature/humidity/...')
     parser.add_argument('--tcn_hard', type=str, required=True,
                         help='TCN-Hard model path (.pth) — wind_direction/precip/...')
+    parser.add_argument('--classifier', type=str, default=None,
+                        help='Condition classifier path (.pkl) — predict weather condition')
     parser.add_argument('--device',   type=str, default=None,
                         help='PyTorch device: cpu hoặc cuda (mặc định: tự detect)')
 

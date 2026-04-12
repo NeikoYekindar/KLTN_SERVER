@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-11T22:08:11.894800",
+  "generated_at": "2026-04-12T14:59:58.692423",
   "based_on_data_until": "2024-10-23T05:00:00",
   "horizon_hours": 24,
   "model_used": "TCN + TCN-Hard (dual model)",
@@ -19,8 +19,7 @@
     ],
     "tcn_hard": [
       "wind_direction",
-      "precip_has_rain",
-      "precip_amount",
+      "precipitation",
       "rain_probability",
       "gust_speed",
       "cloud"
@@ -35,11 +34,11 @@
     "dewpoint",
     "visibility",
     "wind_direction",
-    "precip_has_rain",
-    "precip_amount",
+    "precipitation",
     "rain_probability",
     "gust_speed",
-    "cloud"
+    "cloud",
+    "condition"
   ],
   "forecast": [
     {
@@ -52,12 +51,12 @@
       "uv_index": 4.1172,
       "dewpoint": 23.006,
       "visibility": 5.8941,
-      "wind_direction": 357.7621,
-      "precip_has_rain": 0.5538,
-      "precip_amount": 0.5896,
-      "rain_probability": 24.966,
-      "gust_speed": 5.0591,
-      "cloud": 61.0687
+      "wind_direction": 36.4482,
+      "precipitation": 0.113,
+      "rain_probability": 19.0996,
+      "gust_speed": 6.0992,
+      "cloud": 57.5246,
+      "condition": "Patchy rain possible"
     },
     {
       "timestamp": "2024-10-23T07:00:00",
@@ -69,12 +68,12 @@
       "uv_index": 5.3047,
       "dewpoint": 23.0784,
       "visibility": 6.8972,
-      "wind_direction": 356.9813,
-      "precip_has_rain": 0.5564,
-      "precip_amount": 0.2538,
-      "rain_probability": 23.9162,
-      "gust_speed": 5.8695,
-      "cloud": 64.1279
+      "wind_direction": 37.2293,
+      "precipitation": 0.0488,
+      "rain_probability": 24.302,
+      "gust_speed": 6.5085,
+      "cloud": 60.9462,
+      "condition": "Mist"
     },
     {
       "timestamp": "2024-10-23T08:00:00",
@@ -86,12 +85,12 @@
       "uv_index": 5.9021,
       "dewpoint": 23.2123,
       "visibility": 8.0944,
-      "wind_direction": 317.8238,
-      "precip_has_rain": 0.5865,
-      "precip_amount": 0.2538,
-      "rain_probability": 39.847,
-      "gust_speed": 6.4899,
-      "cloud": 63.6679
+      "wind_direction": 28.19,
+      "precipitation": 0.0511,
+      "rain_probability": 33.3294,
+      "gust_speed": 7.0657,
+      "cloud": 60.474,
+      "condition": "Patchy rain possible"
     },
     {
       "timestamp": "2024-10-23T09:00:00",
@@ -103,12 +102,12 @@
       "uv_index": 6.1852,
       "dewpoint": 23.4713,
       "visibility": 9.1815,
-      "wind_direction": 346.1103,
-      "precip_has_rain": 0.6082,
-      "precip_amount": 0.2538,
-      "rain_probability": 44.2035,
-      "gust_speed": 7.0876,
-      "cloud": 65.3995
+      "wind_direction": 9.4162,
+      "precipitation": 0.0081,
+      "rain_probability": 38.2812,
+      "gust_speed": 8.0159,
+      "cloud": 61.5379,
+      "condition": "Cloudy"
     },
     {
       "timestamp": "2024-10-23T10:00:00",
@@ -120,12 +119,12 @@
       "uv_index": 6.3099,
       "dewpoint": 23.7448,
       "visibility": 9.8516,
-      "wind_direction": 336.6241,
-      "precip_has_rain": 0.6211,
-      "precip_amount": 0.2538,
-      "rain_probability": 57.7966,
-      "gust_speed": 9.2339,
-      "cloud": 63.6131
+      "wind_direction": 26.8316,
+      "precipitation": 0.1748,
+      "rain_probability": 46.8403,
+      "gust_speed": 9.301,
+      "cloud": 67.4908,
+      "condition": "Patchy rain possible"
     },
     {
       "timestamp": "2024-10-23T11:00:00",
@@ -137,12 +136,12 @@
       "uv_index": 6.237,
       "dewpoint": 23.9262,
       "visibility": 10.0555,
-      "wind_direction": 315.5121,
-      "precip_has_rain": 0.6726,
-      "precip_amount": 0.2538,
-      "rain_probability": 74.0438,
-      "gust_speed": 10.8694,
-      "cloud": 70.0445
+      "wind_direction": 8.6192,
+      "precipitation": 0.2608,
+      "rain_probability": 56.7043,
+      "gust_speed": 9.3804,
+      "cloud": 67.4084,
+      "condition": "Light rain shower"
     },
     {
       "timestamp": "2024-10-23T12:00:00",
@@ -154,12 +153,12 @@
       "uv_index": 5.9901,
       "dewpoint": 24.001,
       "visibility": 9.9925,
-      "wind_direction": 303.8814,
-      "precip_has_rain": 0.6846,
-      "precip_amount": 0.4309,
-      "rain_probability": 81.996,
-      "gust_speed": 11.2849,
-      "cloud": 70.8174
+      "wind_direction": 4.1913,
+      "precipitation": 0.6903,
+      "rain_probability": 66.3644,
+      "gust_speed": 9.8715,
+      "cloud": 70.6878,
+      "condition": "Moderate rain at times"
     },
     {
       "timestamp": "2024-10-23T13:00:00",
@@ -171,12 +170,12 @@
       "uv_index": 5.7892,
       "dewpoint": 23.9364,
       "visibility": 9.7646,
-      "wind_direction": 281.0681,
-      "precip_has_rain": 0.6991,
-      "precip_amount": 0.9149,
-      "rain_probability": 81.7819,
-      "gust_speed": 11.4692,
-      "cloud": 69.6247
+      "wind_direction": 351.8768,
+      "precipitation": 0.729,
+      "rain_probability": 74.7066,
+      "gust_speed": 10.2581,
+      "cloud": 70.89,
+      "condition": "Moderate rain at times"
     },
     {
       "timestamp": "2024-10-23T14:00:00",
@@ -188,12 +187,12 @@
       "uv_index": 5.8955,
       "dewpoint": 23.8871,
       "visibility": 9.5375,
-      "wind_direction": 238.6128,
-      "precip_has_rain": 0.7032,
-      "precip_amount": 1.6663,
-      "rain_probability": 90.4746,
-      "gust_speed": 11.5361,
-      "cloud": 75.8382
+      "wind_direction": 76.225,
+      "precipitation": 0.8437,
+      "rain_probability": 69.0203,
+      "gust_speed": 10.341,
+      "cloud": 68.8293,
+      "condition": "Moderate rain at times"
     },
     {
       "timestamp": "2024-10-23T15:00:00",
@@ -205,12 +204,12 @@
       "uv_index": 6.1177,
       "dewpoint": 23.8903,
       "visibility": 9.4286,
-      "wind_direction": 210.9796,
-      "precip_has_rain": 0.7164,
-      "precip_amount": 2.5508,
-      "rain_probability": 89.338,
-      "gust_speed": 11.4559,
-      "cloud": 78.1733
+      "wind_direction": 144.1714,
+      "precipitation": 0.8401,
+      "rain_probability": 72.9095,
+      "gust_speed": 10.4691,
+      "cloud": 72.0108,
+      "condition": "Moderate rain at times"
     },
     {
       "timestamp": "2024-10-23T16:00:00",
@@ -222,12 +221,12 @@
       "uv_index": 5.6965,
       "dewpoint": 23.8721,
       "visibility": 9.32,
-      "wind_direction": 194.5487,
-      "precip_has_rain": 0.7129,
-      "precip_amount": 2.6849,
-      "rain_probability": 92.5605,
-      "gust_speed": 11.9136,
-      "cloud": 77.8753
+      "wind_direction": 149.5362,
+      "precipitation": 0.8888,
+      "rain_probability": 78.4546,
+      "gust_speed": 9.8825,
+      "cloud": 72.7687,
+      "condition": "Moderate rain at times"
     },
     {
       "timestamp": "2024-10-23T17:00:00",
@@ -239,12 +238,12 @@
       "uv_index": 3.7854,
       "dewpoint": 23.7938,
       "visibility": 9.2323,
-      "wind_direction": 178.7958,
-      "precip_has_rain": 0.705,
-      "precip_amount": 2.8763,
-      "rain_probability": 87.4031,
-      "gust_speed": 11.0494,
-      "cloud": 77.7741
+      "wind_direction": 135.6809,
+      "precipitation": 0.7638,
+      "rain_probability": 69.2799,
+      "gust_speed": 9.5662,
+      "cloud": 68.1445,
+      "condition": "Moderate rain at times"
     },
     {
       "timestamp": "2024-10-23T18:00:00",
@@ -256,12 +255,12 @@
       "uv_index": 1.5817,
       "dewpoint": 23.6286,
       "visibility": 9.1885,
-      "wind_direction": 162.4261,
-      "precip_has_rain": 0.6964,
-      "precip_amount": 2.1212,
-      "rain_probability": 83.4327,
-      "gust_speed": 9.7444,
-      "cloud": 77.8216
+      "wind_direction": 161.5193,
+      "precipitation": 0.6595,
+      "rain_probability": 67.2261,
+      "gust_speed": 8.5069,
+      "cloud": 74.3247,
+      "condition": "Moderate rain at times"
     },
     {
       "timestamp": "2024-10-23T19:00:00",
@@ -273,12 +272,12 @@
       "uv_index": 0.2563,
       "dewpoint": 23.4443,
       "visibility": 9.255,
-      "wind_direction": 184.7899,
-      "precip_has_rain": 0.6688,
-      "precip_amount": 1.3482,
-      "rain_probability": 63.9229,
-      "gust_speed": 8.5401,
-      "cloud": 75.5338
+      "wind_direction": 167.2027,
+      "precipitation": 0.4905,
+      "rain_probability": 51.4253,
+      "gust_speed": 8.8366,
+      "cloud": 70.3117,
+      "condition": "Patchy rain possible"
     },
     {
       "timestamp": "2024-10-23T20:00:00",
@@ -290,12 +289,12 @@
       "uv_index": 0.0,
       "dewpoint": 23.2792,
       "visibility": 9.3082,
-      "wind_direction": 183.747,
-      "precip_has_rain": 0.6215,
-      "precip_amount": 0.8017,
-      "rain_probability": 57.402,
-      "gust_speed": 8.06,
-      "cloud": 77.4276
+      "wind_direction": 152.8136,
+      "precipitation": 0.4036,
+      "rain_probability": 43.2904,
+      "gust_speed": 8.808,
+      "cloud": 69.4012,
+      "condition": "Patchy rain possible"
     },
     {
       "timestamp": "2024-10-23T21:00:00",
@@ -307,12 +306,12 @@
       "uv_index": 0.0,
       "dewpoint": 23.1257,
       "visibility": 9.3798,
-      "wind_direction": 186.8925,
-      "precip_has_rain": 0.5956,
-      "precip_amount": 0.6678,
-      "rain_probability": 35.4683,
-      "gust_speed": 6.9657,
-      "cloud": 72.6174
+      "wind_direction": 147.5806,
+      "precipitation": 0.0765,
+      "rain_probability": 38.5876,
+      "gust_speed": 8.0084,
+      "cloud": 67.8471,
+      "condition": "Patchy rain possible"
     },
     {
       "timestamp": "2024-10-23T22:00:00",
@@ -324,12 +323,12 @@
       "uv_index": 0.0,
       "dewpoint": 23.0341,
       "visibility": 9.4638,
-      "wind_direction": 175.1298,
-      "precip_has_rain": 0.5734,
-      "precip_amount": 0.3816,
-      "rain_probability": 24.7826,
-      "gust_speed": 5.8968,
-      "cloud": 69.2041
+      "wind_direction": 155.5227,
+      "precipitation": 0.0864,
+      "rain_probability": 29.2847,
+      "gust_speed": 7.4809,
+      "cloud": 66.7293,
+      "condition": "Patchy rain possible"
     },
     {
       "timestamp": "2024-10-23T23:00:00",
@@ -341,12 +340,12 @@
       "uv_index": 0.0128,
       "dewpoint": 22.9415,
       "visibility": 9.4346,
-      "wind_direction": 197.6469,
-      "precip_has_rain": 0.5559,
-      "precip_amount": 0.4769,
-      "rain_probability": 19.1244,
-      "gust_speed": 6.1401,
-      "cloud": 67.3839
+      "wind_direction": 150.7397,
+      "precipitation": 0.2126,
+      "rain_probability": 23.7631,
+      "gust_speed": 7.2787,
+      "cloud": 67.9162,
+      "condition": "Cloudy"
     },
     {
       "timestamp": "2024-10-24T00:00:00",
@@ -358,12 +357,12 @@
       "uv_index": 0.2241,
       "dewpoint": 22.7988,
       "visibility": 9.1418,
-      "wind_direction": 183.7901,
-      "precip_has_rain": 0.5571,
-      "precip_amount": 0.5029,
-      "rain_probability": 15.2717,
-      "gust_speed": 6.0156,
-      "cloud": 66.5532
+      "wind_direction": 137.2033,
+      "precipitation": 0.188,
+      "rain_probability": 23.9155,
+      "gust_speed": 6.506,
+      "cloud": 65.4914,
+      "condition": "Patchy rain possible"
     },
     {
       "timestamp": "2024-10-24T01:00:00",
@@ -375,12 +374,12 @@
       "uv_index": 0.1885,
       "dewpoint": 22.6745,
       "visibility": 8.5425,
-      "wind_direction": 189.7359,
-      "precip_has_rain": 0.5491,
-      "precip_amount": 0.8246,
-      "rain_probability": 13.8569,
-      "gust_speed": 6.3946,
-      "cloud": 68.0986
+      "wind_direction": 147.7489,
+      "precipitation": 0.1234,
+      "rain_probability": 21.7549,
+      "gust_speed": 6.5813,
+      "cloud": 60.5436,
+      "condition": "Patchy rain possible"
     },
     {
       "timestamp": "2024-10-24T02:00:00",
@@ -392,12 +391,12 @@
       "uv_index": 0.0,
       "dewpoint": 22.5827,
       "visibility": 7.6619,
-      "wind_direction": 214.2101,
-      "precip_has_rain": 0.5556,
-      "precip_amount": 0.989,
-      "rain_probability": 20.1709,
-      "gust_speed": 5.8374,
-      "cloud": 67.912
+      "wind_direction": 140.0302,
+      "precipitation": 0.17,
+      "rain_probability": 20.5764,
+      "gust_speed": 5.1245,
+      "cloud": 61.9597,
+      "condition": "Patchy rain possible"
     },
     {
       "timestamp": "2024-10-24T03:00:00",
@@ -409,12 +408,12 @@
       "uv_index": 0.0,
       "dewpoint": 22.5268,
       "visibility": 6.8961,
-      "wind_direction": 326.5471,
-      "precip_has_rain": 0.5532,
-      "precip_amount": 0.6444,
-      "rain_probability": 17.9854,
-      "gust_speed": 5.4291,
-      "cloud": 60.0734
+      "wind_direction": 117.14,
+      "precipitation": 0.3224,
+      "rain_probability": 18.9404,
+      "gust_speed": 5.1541,
+      "cloud": 59.2699,
+      "condition": "Patchy rain possible"
     },
     {
       "timestamp": "2024-10-24T04:00:00",
@@ -426,12 +425,12 @@
       "uv_index": 0.6349,
       "dewpoint": 22.4903,
       "visibility": 6.3508,
-      "wind_direction": 21.7987,
-      "precip_has_rain": 0.5412,
-      "precip_amount": 0.984,
-      "rain_probability": 18.238,
-      "gust_speed": 4.7701,
-      "cloud": 63.7618
+      "wind_direction": 92.3445,
+      "precipitation": 0.1629,
+      "rain_probability": 22.7553,
+      "gust_speed": 5.6092,
+      "cloud": 58.9024,
+      "condition": "Partly cloudy"
     },
     {
       "timestamp": "2024-10-24T05:00:00",
@@ -443,12 +442,12 @@
       "uv_index": 2.43,
       "dewpoint": 22.4935,
       "visibility": 6.1727,
-      "wind_direction": 12.4182,
-      "precip_has_rain": 0.5385,
-      "precip_amount": 1.03,
-      "rain_probability": 21.2142,
-      "gust_speed": 5.0785,
-      "cloud": 60.7216
+      "wind_direction": 55.9257,
+      "precipitation": 0.2038,
+      "rain_probability": 21.8068,
+      "gust_speed": 5.9456,
+      "cloud": 56.7054,
+      "condition": "Patchy rain possible"
     }
   ]
 }
