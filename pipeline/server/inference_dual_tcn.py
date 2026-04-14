@@ -162,7 +162,7 @@ if TORCH_OK:
                 nn.Linear(64, horizon),
             )
             self.rain_prob_head   = _head(horizon, sigmoid=True)
-            self.gust_head        = _head(horizon)
+            # self.gust_head        = _head(horizon)
             self.cloud_head       = _head(horizon, sigmoid=True)
 
         def forward(self, x):
@@ -171,7 +171,7 @@ if TORCH_OK:
                 'wind_dir':     self.wind_dir_head(feat).view(-1, self.horizon, 2),
                 'precip':       self.precip_head(feat).view(-1, self.horizon, 1),
                 'rain_prob':    self.rain_prob_head(feat).view(-1, self.horizon, 1),
-                'gust':         self.gust_head(feat).view(-1, self.horizon, 1),
+                # 'gust':         self.gust_head(feat).view(-1, self.horizon, 1),
                 'cloud':        self.cloud_head(feat).view(-1, self.horizon, 1),
             }
 
@@ -315,11 +315,11 @@ def predict_tcn_hard(tcn_hard_path: str, csv_path: str, device_str: str = 'cpu')
     feat_sc.var_           = feat_sc.scale_ ** 2
     feat_sc.n_features_in_ = len(feat_sc.mean_)
 
-    gust_sc = StandardScaler()
-    gust_sc.mean_          = np.array([ckpt['gust_scaler_mean']])
-    gust_sc.scale_         = np.array([ckpt['gust_scaler_scale']])
-    gust_sc.var_           = gust_sc.scale_ ** 2
-    gust_sc.n_features_in_ = 1
+    # gust_sc = StandardScaler()
+    # gust_sc.mean_          = np.array([ckpt['gust_scaler_mean']])
+    # gust_sc.scale_         = np.array([ckpt['gust_scaler_scale']])
+    # gust_sc.var_           = gust_sc.scale_ ** 2
+    # gust_sc.n_features_in_ = 1
 
     precip_sc = StandardScaler()
     precip_sc.mean_          = np.array([ckpt['precip_scaler_mean']])
@@ -361,21 +361,21 @@ def predict_tcn_hard(tcn_hard_path: str, csv_path: str, device_str: str = 'cpu')
 
     rain_prob_pct = out['rain_prob'][0, :, 0].cpu().numpy() * 100.0
 
-    gust_sc_in = out['gust'][0, :, 0].cpu().numpy().reshape(-1, 1)
-    gust_kmh = gust_sc.inverse_transform(gust_sc_in).flatten()
-    gust_kmh = np.clip(gust_kmh, 0.0, None)
+    # gust_sc_in = out['gust'][0, :, 0].cpu().numpy().reshape(-1, 1)
+    # gust_kmh = gust_sc.inverse_transform(gust_sc_in).flatten()
+    # gust_kmh = np.clip(gust_kmh, 0.0, None)
 
     cloud_pct = out['cloud'][0, :, 0].cpu().numpy() * 100.0
 
     pred = np.stack([
         wind_deg, precip_mm,
-        rain_prob_pct, gust_kmh, cloud_pct,
-    ], axis=1)
+        rain_prob_pct, cloud_pct,
+    ], axis=1) #gust_kmh,
 
     target_cols = [
         'wind_direction', 'precipitation',
-        'rain_probability', 'gust_speed', 'cloud',
-    ]
+        'rain_probability',  'cloud',
+    ]#'gust_speed',
 
     last_ts = get_last_timestamp(df)
     return pred, target_cols, horizon, last_ts
@@ -391,8 +391,9 @@ def postprocess(pred: np.ndarray, target_cols: list) -> np.ndarray:
         c = col.lower()
         if any(k in c for k in ('humidity', 'cloud', 'rain_probability')):
             pred[:, ti] = np.clip(pred[:, ti], 0.0, 100.0)
-        elif any(k in c for k in ('wind_speed', 'gust_speed', 'uv_index',
+        elif any(k in c for k in ('wind_speed', 'uv_index',
                                    'visibility', 'precipitation')):
+            #, 'gust_speed'
             pred[:, ti] = np.clip(pred[:, ti], 0.0, None)
         elif 'wind_direction' in c:
             pred[:, ti] = pred[:, ti] % 360.0
@@ -453,16 +454,16 @@ def predict_conditions(classifier_ckpt: dict, forecast: list) -> list:
 
 UNITS = {
     'temperature':      'C',
-    'feels_like':       'C',
-    'dewpoint':         'C',
+    # 'feels_like':       'C',
+    # 'dewpoint':         'C',
     'humidity':         '%',
     'wind_speed':       'km/h',
-    'gust_speed':       'km/h',
+    # 'gust_speed':       'km/h',
     'wind_direction':   'deg',
     'pressure':         'hPa',
     'precipitation':    'mm',
     'rain_probability': '%',
-    'uv_index':         '',
+    # 'uv_index':         '',
     'visibility':       'km',
     'cloud':            '%',
     'condition':        '',
