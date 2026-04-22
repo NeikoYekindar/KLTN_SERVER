@@ -1,0 +1,19 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Chỉ cần Flask + GCS — KHÔNG cần PyTorch (image nhỏ hơn ~2GB)
+RUN pip install --no-cache-dir \
+    flask>=3.0 \
+    flask-cors>=4.0 \
+    google-cloud-storage>=2.0
+
+# Chỉ copy 2 file Python cần thiết
+COPY server/api_server.py server/api_server.py
+COPY server/gcs_client.py server/gcs_client.py
+
+EXPOSE 5000
+
+ENV PYTHONUNBUFFERED=1
+
+CMD ["python", "server/api_server.py"]

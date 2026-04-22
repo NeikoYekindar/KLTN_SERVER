@@ -1,60 +1,70 @@
 version: '3.8'
 
+# ============================================================
+# Weather Forecast System  —  GCS Edition
+# ============================================================
+# 3 services:
+#   mosquitto   — MQTT broker
+#   worker      — MQTT subscriber + dual TCN inference + GCS upload
+#   api         — Flask API đọc từ GCS (không cần PyTorch)
+#
+# Cách dùng:
+#   cp .env.example .env         # điền GCS_BUCKET
+#   cp /path/to/gcp-key.json secrets/gcp-key.json
+#   docker compose up -d --build
+# ============================================================
+
 services:
+
   # ===== MQTT Broker =====
   mosquitto:
     image: eclipse-mosquitto:2
     container_name: mqtt_broker
     ports:
-      - "1883:1883"   # MQTT
-      - "9001:9001"   # WebSocket (optional, cho debug)
+      - "1883:1883"
+      - "9001:9001"
     volumes:
       - ./mosquitto/config:/mosquitto/config
       - ./mosquitto/data:/mosquitto/data
       - ./mosquitto/log:/mosquitto/log
     restart: unless-stopped
 
-  # ===== Forecast Server =====
-  forecast_server:
+  # ===== Inference Worker =====
+  worker:
     build:
       context: .
-      dockerfile: Dockerfile
-    container_name: forecast_server
-    ports:
-      - "5000:5000"
-    volumes:
-      - ./server:/app/server
-      - ./models:/app/models
-      - ./data:/app/data
-    environment:
-      - MQTT_BROKER=mosquitto
-      - MQTT_PORT=1883
-      - API_PORT=5000
+      dockerfile: Dockerfile.worker
+    container_name: inference_worker
     depends_on:
       - mosquitto
+    volumes:
+      - ./server:/app/server          # code (hot-reload friendly)
+      - ./models:/app/models          # model .pth files
+      - ./data:/app/data              # local data storage
+    environment:
+      - GCS_BUCKET=${GCS_BUCKET}
     command: >
-      python server/server.py
-        --broker mosquitto
-        --mqtt-port 1883
-        --tcn models/tcn_model.pth
-        --arima models/arima_model.pkl
-        --inference-script server/inference.py
-        --ensemble_json models/ensemble_stacking_metrics.json
-        --api-port 5000
+      python server/worker.py
+        --broker     mosquitto
+        --mqtt-port  1883
+        --topic      weather/data
+        --tcn        models/tcn_model.pth
+        --tcn_hard   models/tcn_hard_model.pth
+        --classifier models/condition_classifier.pkl
+        --inference-script server/inference_dual_tcn.py
     restart: unless-stopped
 
-  # ===== TimescaleDB (optional, cho lưu trữ dài hạn) =====
-  # timescaledb:
-  #   image: timescale/timescaledb:latest-pg16
-  #   container_name: timescaledb
-  #   ports:
-  #     - "5432:5432"
-  #   environment:
-  #     POSTGRES_PASSWORD: weatherdb
-  #     POSTGRES_DB: weather
-  #   volumes:
-  #     - timescale_data:/var/lib/postgresql/data
-  #   restart: unless-stopped
-
-# volumes:
-#   timescale_data:
+  # ===== Flask API Server =====
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: forecast_api
+    ports:
+      - "5000:5000"
+    environment:
+      - GCS_BUCKET=${GCS_BUCKET}
+      - GCS_REFRESH_INTERVAL=${GCS_REFRESH_INTERVAL:-300}
+      - API_PORT=5000
+      - API_HOST=0.0.0.0
+    restart: unless-stopped
