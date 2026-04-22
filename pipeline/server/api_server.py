@@ -220,6 +220,42 @@ def get_status():
         **server_status,
     })
 
+@app.route('/api/upload_csv', methods=['POST'])
+def upload_csv():
+    """
+    Upload file CSV lên GCS (thay thế data/last_48h.csv).
+    Sau khi upload, refresh dữ liệu in-memory ngay lập tức.
+
+    Form-data: file=<csv_file>
+    """
+    if 'file' not in request.files:
+        return jsonify({'error': 'Thiếu field "file" trong form-data'}), 400
+
+    file = request.files['file']
+    if not file.filename.lower().endswith('.csv'):
+        return jsonify({'error': 'Chỉ chấp nhận file .csv'}), 400
+
+    csv_text = file.read().decode('utf-8', errors='replace')
+
+    # Validate CSV có ít nhất 1 dòng dữ liệu
+    reader = csv.DictReader(io.StringIO(csv_text))
+    rows = list(reader)
+    if not rows:
+        return jsonify({'error': 'File CSV rỗng hoặc không hợp lệ'}), 400
+
+    gcs_client.upload_string(csv_text, GCS_CSV_PATH, content_type='text/csv')
+    print(f"[API] CSV upload: {file.filename} → gs://{os.environ.get('GCS_BUCKET', '?')}/{GCS_CSV_PATH} ({len(rows)} rows)")
+
+    threading.Thread(target=_do_refresh, daemon=True).start()
+
+    return jsonify({
+        'message':   'CSV đã upload lên GCS, đang refresh dữ liệu',
+        'filename':  file.filename,
+        'gcs_path':  GCS_CSV_PATH,
+        'num_rows':  len(rows),
+        'columns':   list(rows[0].keys()),
+    })
+
 
 # ============================================================
 # Main
@@ -259,7 +295,8 @@ def main():
     print("       GET  /api/forecast/history")
     print("       GET  /api/forecast/history/<run_id>")
     print("       GET  /api/current")
-    print("       GET  /api/status\n")
+    print("       GET  /api/status")
+    print("       POST /api/upload_csv\n")
 
     app.run(host=api_host, port=api_port, debug=False, threaded=True)
 
