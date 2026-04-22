@@ -13,7 +13,7 @@ Env vars (bắt buộc):
     GOOGLE_APPLICATION_CREDENTIALS  — path tới service account key JSON
 
 Env vars (tùy chọn):
-    GCS_REFRESH_INTERVAL  — giây giữa 2 lần refresh từ GCS (mặc định 300)
+    GCS_REFRESH_INTERVAL  — giây giữa 2 lần refresh từ GCS (mặc định 60)
     API_HOST              — host Flask (mặc định 0.0.0.0)
     API_PORT              — port Flask (mặc định 5000)
 
@@ -45,7 +45,7 @@ import gcs_client
 # Config
 # ============================================================
 
-GCS_REFRESH_INTERVAL = int(os.environ.get('GCS_REFRESH_INTERVAL', 300))
+GCS_REFRESH_INTERVAL = int(os.environ.get('GCS_REFRESH_INTERVAL', 60))
 GCS_FORECAST_PATH    = "forecasts/forecast_result.json"
 GCS_CSV_PATH         = "data/last_48h.csv"
 GCS_HISTORY_PREFIX   = "forecasts/history/"
