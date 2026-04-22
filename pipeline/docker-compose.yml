@@ -64,7 +64,7 @@ services:
       - "5000:5000"
     environment:
       - GCS_BUCKET=${GCS_BUCKET}
-      - GCS_REFRESH_INTERVAL=${GCS_REFRESH_INTERVAL:-300}
+      - GCS_REFRESH_INTERVAL=${GCS_REFRESH_INTERVAL:-60}
       - API_PORT=5000
       - API_HOST=0.0.0.0
     restart: unless-stopped
