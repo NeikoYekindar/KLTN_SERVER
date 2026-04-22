@@ -117,13 +117,24 @@ def process_incoming_data(payload_str: str, args):
             print("[ERROR] Payload không có csv_data")
             return
 
-        # --- Lưu local ---
-        CSV_PATH.write_text(csv_data, encoding='utf-8')
-        print(f"[DATA] Lưu local → {CSV_PATH}")
+        print(f"[DATA] csv_data OK ({len(csv_data)} bytes)")
 
-        ts           = datetime.now().strftime('%Y%m%d_%H%M%S')
-        history_file = HISTORY_DIR / f"data_{ts}_{device_id}.csv"
-        history_file.write_text(csv_data, encoding='utf-8')
+        # --- Lưu local ---
+        try:
+            CSV_PATH.write_text(csv_data, encoding='utf-8')
+            print(f"[DATA] Lưu local → {CSV_PATH}")
+        except Exception as e:
+            _log_error(f"Không thể ghi {CSV_PATH}: {e}")
+            return
+
+        try:
+            ts           = datetime.now().strftime('%Y%m%d_%H%M%S')
+            history_file = HISTORY_DIR / f"data_{ts}_{device_id}.csv"
+            history_file.write_text(csv_data, encoding='utf-8')
+            print(f"[DATA] Lưu history → {history_file}")
+        except Exception as e:
+            _log_error(f"Không thể ghi history file: {e}")
+            # Không return — vẫn tiếp tục inference
 
         # --- Upload GCS ---
         try:
@@ -135,6 +146,7 @@ def process_incoming_data(payload_str: str, args):
         worker_status['last_data_received'] = datetime.now().isoformat()
 
         # --- Chạy inference ---
+        print("[DATA] Gọi run_inference...")
         run_inference(args)
 
     except json.JSONDecodeError as e:
@@ -150,12 +162,14 @@ def process_incoming_data(payload_str: str, args):
 def run_inference(args):
     global worker_status
 
+    print(f"[INFERENCE] run_inference() được gọi. CSV exists={CSV_PATH.exists()}, lock_locked={inference_lock.locked()}")
+
     if not CSV_PATH.exists():
         print("[WARN] Chưa có file CSV, bỏ qua inference")
         return
 
     if not inference_lock.acquire(blocking=False):
-        print("[WARN] Inference đang chạy, bỏ qua request mới")
+        print("[WARN] Inference đang chạy (lock bị giữ), bỏ qua request mới")
         return
 
     try:
