@@ -126,8 +126,11 @@ def process_incoming_data(payload_str: str, args):
         history_file.write_text(csv_data, encoding='utf-8')
 
         # --- Upload GCS ---
-        gcs_client.upload_file(CSV_PATH, GCS_CSV_PATH)
-        gcs_client.upload_string(csv_data, f"data/history/data_{ts}_{device_id}.csv")
+        try:
+            gcs_client.upload_file(CSV_PATH, GCS_CSV_PATH)
+            gcs_client.upload_string(csv_data, f"data/history/data_{ts}_{device_id}.csv")
+        except Exception as gcs_err:
+            print(f"[WARN] GCS upload thất bại (bỏ qua, tiếp tục inference): {gcs_err}")
 
         worker_status['last_data_received'] = datetime.now().isoformat()
 
