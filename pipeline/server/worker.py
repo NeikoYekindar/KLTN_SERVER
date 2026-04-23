@@ -82,7 +82,7 @@ def _log_error(msg: str):
 
 def init_dirs():
     for d in [DATA_DIR, MODELS_DIR, HISTORY_DIR, FORECAST_HISTORY_DIR]:
-        d.mkdir(exist_ok=True)
+        d.mkdir(parents=True, exist_ok=True)
 
 
 def auto_detect_device() -> str:
