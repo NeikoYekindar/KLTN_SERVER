@@ -2,10 +2,10 @@
 =============================================================================
 Inference Worker  —  MQTT + Dual TCN + GCS Upload
 =============================================================================
-Component 1: nhận data từ MQTT, chạy inference, lưu local + upload GCS.
-Không có Flask API — chỉ là background worker.
+Component 1: receive data from MQTT, run inference, save local + upload GCS.
+No Flask API — background worker only.
 
-Chạy:
+Usage:
     python server/worker.py \
         --broker   localhost \
         --tcn      models/tcn_model.pth \
@@ -13,8 +13,8 @@ Chạy:
         --classifier models/condition_classifier.pkl
 
 Env vars:
-    GCS_BUCKET                      — tên GCS bucket (bắt buộc để upload)
-    GOOGLE_APPLICATION_CREDENTIALS  — path tới service account key JSON
+    GCS_BUCKET                      — GCS bucket name (required for upload)
+    GOOGLE_APPLICATION_CREDENTIALS  — path to service account key JSON
 =============================================================================
 """
 
@@ -49,7 +49,7 @@ FORECAST_PATH        = DATA_DIR / "forecast_result.json"
 HISTORY_DIR          = DATA_DIR / "history"
 FORECAST_HISTORY_DIR = DATA_DIR / "forecast_history"
 
-# GCS paths (relative trong bucket)
+# GCS paths (relative inside bucket)
 GCS_CSV_PATH      = "data/last_48h.csv"
 GCS_FORECAST_PATH = "forecasts/forecast_result.json"
 
@@ -111,7 +111,7 @@ def auto_detect_device() -> str:
             return 'cuda'
     except ImportError:
         pass
-    print("[DEVICE] Không có GPU → cpu")
+    print("[DEVICE] No GPU found → cpu")
     return 'cpu'
 
 
@@ -128,27 +128,40 @@ def process_incoming_data(payload_str: str, args):
         device_id = payload.get('device_id', 'unknown')
         num_rows  = payload.get('num_rows', 0)
 
-        print(f"\n[DATA] Nhận {num_rows} hàng từ {device_id}")
+        print(f"\n[DATA] Received {num_rows} rows from {device_id}")
 
         if not csv_data:
-            print("[ERROR] Payload không có csv_data")
+            print("[ERROR] Payload missing csv_data")
             return
 
-        # --- Lưu local ---
-        CSV_PATH.write_text(csv_data, encoding='utf-8')
-        print(f"[DATA] Lưu local → {CSV_PATH}")
+        print(f"[DATA] csv_data OK ({len(csv_data)} bytes)")
 
-        ts           = datetime.now().strftime('%Y%m%d_%H%M%S')
-        history_file = HISTORY_DIR / f"data_{ts}_{device_id}.csv"
-        history_file.write_text(csv_data, encoding='utf-8')
+        # --- Save local ---
+        try:
+            CSV_PATH.write_text(csv_data, encoding='utf-8')
+            print(f"[DATA] Saved local → {CSV_PATH}")
+        except Exception as e:
+            _log_error(f"Cannot write {CSV_PATH}: {e}")
+            return
+
+        try:
+            ts           = datetime.now().strftime('%Y%m%d_%H%M%S')
+            history_file = HISTORY_DIR / f"data_{ts}_{device_id}.csv"
+            history_file.write_text(csv_data, encoding='utf-8')
+            print(f"[DATA] Saved history → {history_file}")
+        except Exception as e:
+            _log_error(f"Cannot write history file: {e}")
+            # Continue to inference anyway
 
         # --- Sao lưu EFS ---
         _efs_write(EFS_CSV, csv_data)
         _efs_write(EFS_HISTORY_DIR / f"data_{ts}_{device_id}.csv", csv_data)
 
+
         worker_status['last_data_received'] = datetime.now().isoformat()
 
-        # --- Chạy inference ---
+        # --- Run inference ---
+        print("[DATA] Calling run_inference...")
         run_inference(args)
 
     except json.JSONDecodeError as e:
@@ -164,12 +177,14 @@ def process_incoming_data(payload_str: str, args):
 def run_inference(args):
     global worker_status
 
+    print(f"[INFERENCE] run_inference() called. CSV exists={CSV_PATH.exists()}, lock_locked={inference_lock.locked()}")
+
     if not CSV_PATH.exists():
-        print("[WARN] Chưa có file CSV, bỏ qua inference")
+        print("[WARN] No CSV file found, skipping inference")
         return
 
     if not inference_lock.acquire(blocking=False):
-        print("[WARN] Inference đang chạy, bỏ qua request mới")
+        print("[WARN] Inference already running (lock held), skipping new request")
         return
 
     try:
@@ -184,12 +199,12 @@ def run_inference(args):
         if args.classifier:
             cmd.extend(['--classifier', args.classifier])
 
-        print(f"\n[INFERENCE] Chạy: {' '.join(cmd)}")
+        print(f"\n[INFERENCE] Running: {' '.join(cmd)}")
         t0 = time.time()
 
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
         elapsed = time.time() - t0
-        print(f"[INFERENCE] Xong trong {elapsed:.1f}s")
+        print(f"[INFERENCE] Done in {elapsed:.1f}s")
 
         if result.returncode == 0:
             stdout_tail = result.stdout[-600:] if len(result.stdout) > 600 else result.stdout
@@ -240,7 +255,7 @@ def run_inference(args):
 
 def start_mqtt_subscriber(args):
     if not MQTT_OK:
-        print("[WARN] paho-mqtt chưa cài — không có MQTT")
+        print("[WARN] paho-mqtt not installed — MQTT disabled")
         return None
 
     def on_connect(client, userdata, flags, rc):
@@ -248,11 +263,11 @@ def start_mqtt_subscriber(args):
             client.subscribe(args.topic, qos=1)
             print(f"[MQTT] Subscribed → '{args.topic}'")
         else:
-            print(f"[MQTT] Kết nối thất bại: rc={rc}")
+            print(f"[MQTT] Connection failed: rc={rc}")
 
     def on_disconnect(client, userdata, rc):
         if rc != 0:
-            print(f"[MQTT] Mất kết nối (rc={rc}), đang reconnect...")
+            print(f"[MQTT] Disconnected (rc={rc}), reconnecting...")
 
     def on_message(client, userdata, msg):
         print(f"[MQTT] Message topic='{msg.topic}' size={len(msg.payload)}B")
@@ -273,10 +288,10 @@ def start_mqtt_subscriber(args):
     try:
         client.connect(args.broker, args.mqtt_port, keepalive=120)
         client.loop_start()
-        print(f"[MQTT] Kết nối tới {args.broker}:{args.mqtt_port}")
+        print(f"[MQTT] Connected to {args.broker}:{args.mqtt_port}")
         return client
     except Exception as e:
-        print(f"[MQTT] Không thể kết nối: {e}")
+        print(f"[MQTT] Cannot connect: {e}")
         return None
 
 
@@ -306,10 +321,10 @@ def main():
 
     for attr, label in [('tcn', '--tcn'), ('tcn_hard', '--tcn_hard')]:
         if not os.path.exists(getattr(args, attr)):
-            parser.error(f"{label}: file không tồn tại")
+            parser.error(f"{label}: file not found")
 
     if not os.path.exists(args.inference_script):
-        parser.error(f"--inference-script: không tìm thấy '{args.inference_script}'")
+        parser.error(f"--inference-script: not found '{args.inference_script}'")
 
     init_dirs()
 
@@ -338,7 +353,7 @@ def main():
         if mqtt_client:
             mqtt_client.loop_stop()
             mqtt_client.disconnect()
-        print("\n[INFO] Worker dừng.")
+        print("\n[INFO] Worker stopped.")
 
 
 if __name__ == '__main__':

@@ -256,15 +256,34 @@ def main():
                         help='Dùng dữ liệu mô phỏng thay vì cảm biến thật')
     parser.add_argument('--init-buffer', action='store_true',
                         help='Tạo buffer 48h ban đầu (simulate mode)')
+    parser.add_argument('--send-file', type=str, default=None,
+                        help='Gửi thủ công một file CSV lên server rồi thoát')
     args = parser.parse_args()
 
     print("=" * 60)
     print("  EDGE PUBLISHER — Raspberry Pi 5")
     print(f"  Broker: {args.broker}:{args.port}")
     print(f"  Topic:  {args.topic}")
-    print(f"  Mode:   {'Simulate' if args.simulate else 'Real sensors'}")
+    print(f"  Mode:   {'Send file' if args.send_file else ('Simulate' if args.simulate else 'Real sensors')}")
     print(f"  Interval: {args.interval}s")
     print("=" * 60)
+
+    # Chế độ gửi thủ công một file CSV rồi thoát
+    if args.send_file:
+        if not os.path.exists(args.send_file):
+            print(f"[ERROR] File không tồn tại: {args.send_file}")
+            return
+        with open(args.send_file, 'r') as f:
+            csv_data = f.read()
+        num_rows = csv_data.count('\n') - 1
+        print(f"[INFO] Đọc file: {args.send_file} ({num_rows} hàng)")
+        client = create_mqtt_client(args.broker, args.port, args.username, args.password)
+        time.sleep(2)
+        publish_data(client, args.topic, csv_data, metadata={'source_file': os.path.basename(args.send_file)})
+        client.loop_stop()
+        client.disconnect()
+        print("[INFO] Đã gửi xong. Thoát.")
+        return
 
     # Load hoặc tạo buffer
     if args.init_buffer and args.simulate:
