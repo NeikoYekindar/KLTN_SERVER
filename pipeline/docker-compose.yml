@@ -1,16 +1,17 @@
 version: '3.8'
 
 # ============================================================
-# Weather Forecast System  —  GCS Edition
+# Weather Forecast System  —  AWS EFS Edition
 # ============================================================
 # 3 services:
 #   mosquitto   — MQTT broker
-#   worker      — MQTT subscriber + dual TCN inference + GCS upload
-#   api         — Flask API đọc từ GCS (không cần PyTorch)
+#   worker      — MQTT subscriber + dual TCN inference + ghi EFS
+#   api         — Flask API đọc local data + sao lưu EFS
+#
+# Yêu cầu host EC2: EFS đã mount tại /mnt/efs/fs1
+#   sudo mount -t nfs4 <efs-id>.efs.<region>.amazonaws.com:/ /mnt/efs/fs1
 #
 # Cách dùng:
-#   cp .env.example .env         # điền GCS_BUCKET
-#   cp /path/to/gcp-key.json secrets/gcp-key.json
 #   docker compose up -d --build
 # ============================================================
 
@@ -38,11 +39,12 @@ services:
     depends_on:
       - mosquitto
     volumes:
-      - ./server:/app/server          # code (hot-reload friendly)
-      - ./models:/app/models          # model .pth files
-      - ./data:/app/data              # local data storage
+      - ./server:/app/server               # code
+      - ./models:/app/models               # model .pth files
+      - ./data:/app/data                   # local data (primary)
+      - /mnt/efs/fs1:/mnt/efs/fs1          # EFS thật từ host EC2
     environment:
-      - GCS_BUCKET=${GCS_BUCKET}
+      - EFS_BASE=/mnt/efs/fs1
     command: >
       python server/worker.py
         --broker     mosquitto
@@ -62,9 +64,12 @@ services:
     container_name: forecast_api
     ports:
       - "5000:5000"
+    volumes:
+      - ./data:/app/data                   # local data (primary)
+      - /mnt/efs/fs1:/mnt/efs/fs1          # EFS thật từ host EC2
     environment:
-      - GCS_BUCKET=${GCS_BUCKET}
-      - GCS_REFRESH_INTERVAL=${GCS_REFRESH_INTERVAL:-300}
+      - EFS_BASE=/mnt/efs/fs1
+      - GCS_REFRESH_INTERVAL=${GCS_REFRESH_INTERVAL:-60}
       - API_PORT=5000
       - API_HOST=0.0.0.0
     restart: unless-stopped

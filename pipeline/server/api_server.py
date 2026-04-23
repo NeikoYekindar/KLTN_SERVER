@@ -29,26 +29,39 @@ Endpoints (giống server_dual_tcn.py):
 """
 
 import csv
+import glob
 import io
 import json
 import os
 import threading
 import time
 from datetime import datetime
+from pathlib import Path
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-import gcs_client
+#import gcs_client
 
 # ============================================================
 # Config
 # ============================================================
 
-GCS_REFRESH_INTERVAL = int(os.environ.get('GCS_REFRESH_INTERVAL', 300))
+GCS_REFRESH_INTERVAL = int(os.environ.get('GCS_REFRESH_INTERVAL', 60))
 GCS_FORECAST_PATH    = "forecasts/forecast_result.json"
 GCS_CSV_PATH         = "data/last_48h.csv"
 GCS_HISTORY_PREFIX   = "forecasts/history/"
+
+# Local paths (cùng thư mục với worker.py)
+LOCAL_CSV         = "data/last_48h.csv"
+LOCAL_FORECAST    = "data/forecast_result.json"
+LOCAL_HISTORY_DIR = "data/forecast_history"
+
+# EFS paths (bản sao backup)
+EFS_BASE         = os.environ.get('EFS_BASE', '/mnt/efs/fs1')
+EFS_FORECAST     = f"{EFS_BASE}/forecasts/forecast_result.json"
+EFS_CSV          = f"{EFS_BASE}/data/last_48h.csv"
+EFS_HISTORY_DIR  = f"{EFS_BASE}/forecasts/history"
 
 # ============================================================
 # Global state (refreshed từ GCS định kỳ)
@@ -59,9 +72,9 @@ latest_raw_data       = None
 forecast_history_meta = []   # cache danh sách history (metadata nhẹ)
 
 server_status = {
-    'started_at':      None,
-    'last_gcs_refresh': None,
-    'errors':          [],
+    'started_at':   None,
+    'last_refresh': None,
+    'errors':       [],
 }
 
 
@@ -77,56 +90,63 @@ def _log_error(msg: str):
 # ============================================================
 
 def _do_refresh():
-    """Tải dữ liệu mới nhất từ GCS vào memory."""
+    """Tải dữ liệu mới nhất từ EFS vào memory."""
     global latest_forecast, latest_raw_data, forecast_history_meta
 
     # 1. Forecast chính
-    data = gcs_client.download_json(GCS_FORECAST_PATH)
-    if data:
-        latest_forecast = data
-        print(f"[GCS] Refreshed forecast ({len(data.get('forecast', []))} steps)")
+    if os.path.exists(LOCAL_FORECAST):
+        try:
+            with open(LOCAL_FORECAST, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            latest_forecast = data
+            print(f"[DATA] Refreshed forecast ({len(data.get('forecast', []))} steps)")
+        except Exception as e:
+            _log_error(f"Read forecast failed: {e}")
 
     # 2. Sensor CSV → latest_raw_data
-    csv_text = gcs_client.download_text(GCS_CSV_PATH)
-    if csv_text:
-        reader = csv.DictReader(io.StringIO(csv_text))
-        rows = list(reader)
-        if rows:
-            latest_raw_data = {
-                'device_id':   'gcs',
-                'received_at': datetime.now().isoformat(),
-                'num_rows':    len(rows),
-                'last_row':    rows[-1],
-                'columns':     list(rows[0].keys()),
-            }
-            print(f"[GCS] Refreshed sensor data ({len(rows)} rows)")
+    if os.path.exists(LOCAL_CSV):
+        try:
+            with open(LOCAL_CSV, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                rows = list(reader)
+            if rows:
+                latest_raw_data = {
+                    'device_id':   'local',
+                    'received_at': datetime.now().isoformat(),
+                    'num_rows':    len(rows),
+                    'last_row':    rows[-1],
+                    'columns':     list(rows[0].keys()),
+                }
+                print(f"[DATA] Refreshed sensor data ({len(rows)} rows)")
+        except Exception as e:
+            _log_error(f"Read CSV failed: {e}")
 
-    # 3. Forecast history metadata (tên blob → metadata nhẹ)
-    blob_names = gcs_client.list_blobs(GCS_HISTORY_PREFIX)
+    # 3. Forecast history metadata
+    files = sorted(glob.glob(f"{LOCAL_HISTORY_DIR}/forecast_*.json"), reverse=True)[:50]
     history = []
-    for name in sorted(blob_names, reverse=True)[:50]:   # 50 lần gần nhất
-        # Tên blob: "forecasts/history/forecast_20260415_120000.json"
-        stem = name.split('/')[-1].replace('.json', '')   # "forecast_20260415_120000"
-        run_id = stem.replace('forecast_', '', 1)         # "20260415_120000"
+    for path in files:
+        filename = os.path.basename(path)
+        stem   = filename.replace('.json', '')        # "forecast_20260415_120000"
+        run_id = stem.replace('forecast_', '', 1)     # "20260415_120000"
         history.append({
             'run_id':   run_id,
-            'filename': name.split('/')[-1],
-            'gcs_path': name,
+            'filename': filename,
+            'local_path': path,
         })
     if history:
         forecast_history_meta = history
-        print(f"[GCS] Refreshed history list ({len(history)} entries)")
+        print(f"[DATA] Refreshed history list ({len(history)} entries)")
 
-    server_status['last_gcs_refresh'] = datetime.now().isoformat()
+    server_status['last_refresh'] = datetime.now().isoformat()
 
 
 def _refresh_loop():
-    """Background thread: refresh GCS theo interval."""
+    """Background thread: refresh EFS theo interval."""
     while True:
         try:
             _do_refresh()
         except Exception as e:
-            _log_error(f"GCS refresh loop error: {e}")
+            _log_error(f"EFS refresh loop error: {e}")
         time.sleep(GCS_REFRESH_INTERVAL)
 
 
@@ -188,11 +208,15 @@ def get_forecast_history():
 # ----------------------------------------------------------
 @app.route('/api/forecast/history/<run_id>', methods=['GET'])
 def get_forecast_history_detail(run_id):
-    gcs_path = f"forecasts/history/forecast_{run_id}.json"
-    data = gcs_client.download_json(gcs_path)
-    if data is None:
+    path = f"{LOCAL_HISTORY_DIR}/forecast_{run_id}.json"
+    if not os.path.exists(path):
         return jsonify({'error': f'run_id "{run_id}" not found'}), 404
-    return jsonify(data)
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 # ----------------------------------------------------------
@@ -211,11 +235,11 @@ def get_current_data():
 @app.route('/api/status', methods=['GET'])
 def get_status():
     return jsonify({
-        'status':                'running',
-        'gcs_bucket':            os.environ.get('GCS_BUCKET', ''),
-        'refresh_interval_secs': GCS_REFRESH_INTERVAL,
-        'has_forecast':          latest_forecast is not None,
-        'has_sensor_data':       latest_raw_data is not None,
+        'status':                 'running',
+        'efs_base':               EFS_BASE,
+        'refresh_interval_secs':  GCS_REFRESH_INTERVAL,
+        'has_forecast':           latest_forecast is not None,
+        'has_sensor_data':        latest_raw_data is not None,
         'history_entries_cached': len(forecast_history_meta),
         **server_status,
     })
@@ -223,8 +247,8 @@ def get_status():
 @app.route('/api/upload_csv', methods=['POST'])
 def upload_csv():
     """
-    Upload file CSV lên GCS (thay thế data/last_48h.csv).
-    Sau khi upload, refresh dữ liệu in-memory ngay lập tức.
+    Upload file CSV — lưu vào thư mục local data/ và sao lưu sang EFS.
+    Sau khi lưu, refresh dữ liệu in-memory ngay lập tức.
 
     Form-data: file=<csv_file>
     """
@@ -237,23 +261,38 @@ def upload_csv():
 
     csv_text = file.read().decode('utf-8', errors='replace')
 
-    # Validate CSV có ít nhất 1 dòng dữ liệu
     reader = csv.DictReader(io.StringIO(csv_text))
     rows = list(reader)
     if not rows:
         return jsonify({'error': 'File CSV rỗng hoặc không hợp lệ'}), 400
 
-    gcs_client.upload_string(csv_text, GCS_CSV_PATH, content_type='text/csv')
-    print(f"[API] CSV upload: {file.filename} → gs://{os.environ.get('GCS_BUCKET', '?')}/{GCS_CSV_PATH} ({len(rows)} rows)")
+    # Lưu local (primary)
+    Path(LOCAL_CSV).parent.mkdir(parents=True, exist_ok=True)
+    with open(LOCAL_CSV, 'w', encoding='utf-8', newline='') as f:
+        f.write(csv_text)
+    print(f"[API] CSV saved local: {file.filename} → {LOCAL_CSV} ({len(rows)} rows)")
+
+    # Sao lưu sang EFS
+    try:
+        Path(EFS_CSV).parent.mkdir(parents=True, exist_ok=True)
+        with open(EFS_CSV, 'w', encoding='utf-8', newline='') as f:
+            f.write(csv_text)
+        print(f"[API] CSV backed up EFS: → {EFS_CSV}")
+        efs_ok = True
+    except Exception as e:
+        print(f"[WARN] EFS backup failed: {e}")
+        efs_ok = False
 
     threading.Thread(target=_do_refresh, daemon=True).start()
 
     return jsonify({
-        'message':   'CSV đã upload lên GCS, đang refresh dữ liệu',
-        'filename':  file.filename,
-        'gcs_path':  GCS_CSV_PATH,
-        'num_rows':  len(rows),
-        'columns':   list(rows[0].keys()),
+        'message':    'CSV đã lưu, đang refresh dữ liệu',
+        'filename':   file.filename,
+        'local_path': LOCAL_CSV,
+        'efs_path':   EFS_CSV if efs_ok else None,
+        'efs_ok':     efs_ok,
+        'num_rows':   len(rows),
+        'columns':    list(rows[0].keys()),
     })
 
 
@@ -264,27 +303,25 @@ def upload_csv():
 def main():
     api_host = os.environ.get('API_HOST', '0.0.0.0')
     api_port = int(os.environ.get('API_PORT', 5000))
-    bucket   = os.environ.get('GCS_BUCKET', '')
 
     print("=" * 60)
-    print("  FORECAST API SERVER  —  GCS Edition")
+    print("  FORECAST API SERVER  —  AWS EFS Edition")
     print("=" * 60)
-    print(f"  GCS Bucket    : {bucket or 'NOT SET !'}")
+    print(f"  Local data    : {LOCAL_CSV}")
+    print(f"  EFS backup    : {EFS_BASE}")
     print(f"  Refresh       : mỗi {GCS_REFRESH_INTERVAL}s")
     print(f"  API           : http://{api_host}:{api_port}")
     print("=" * 60)
 
     server_status['started_at'] = datetime.now().isoformat()
 
-    # Lần đầu load ngay từ GCS (đồng bộ)
-    print("[GCS] Initial load...")
+    print("[DATA] Initial load...")
     try:
         _do_refresh()
     except Exception as e:
-        print(f"[WARN] Initial GCS load failed: {e}")
+        print(f"[WARN] Initial load failed: {e}")
 
-    # Background refresh thread
-    t = threading.Thread(target=_refresh_loop, daemon=True, name="gcs_refresh")
+    t = threading.Thread(target=_refresh_loop, daemon=True, name="data_refresh")
     t.start()
 
     print(f"\n[API] Running at http://{api_host}:{api_port}")

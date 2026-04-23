@@ -53,6 +53,13 @@ FORECAST_HISTORY_DIR = DATA_DIR / "forecast_history"
 GCS_CSV_PATH      = "data/last_48h.csv"
 GCS_FORECAST_PATH = "forecasts/forecast_result.json"
 
+# EFS paths (sao lưu sang AWS EFS)
+EFS_BASE         = os.environ.get('EFS_BASE', '/mnt/efs/fs1')
+EFS_CSV          = Path(EFS_BASE) / "data" / "last_48h.csv"
+EFS_HISTORY_DIR  = Path(EFS_BASE) / "data" / "history"
+EFS_FORECAST     = Path(EFS_BASE) / "forecasts" / "forecast_result.json"
+EFS_FORECAST_HIST = Path(EFS_BASE) / "forecasts" / "history"
+
 # ============================================================
 # State
 # ============================================================
@@ -74,6 +81,16 @@ def _log_error(msg: str):
     worker_status['errors'].append({'time': datetime.now().isoformat(), 'error': msg})
     if len(worker_status['errors']) > 20:
         worker_status['errors'] = worker_status['errors'][-20:]
+
+
+def _efs_write(efs_path: Path, content: str):
+    """Ghi nội dung lên EFS — lỗi chỉ log, không raise."""
+    try:
+        efs_path.parent.mkdir(parents=True, exist_ok=True)
+        efs_path.write_text(content, encoding='utf-8')
+        print(f"[EFS] ↑ {efs_path}")
+    except Exception as e:
+        print(f"[WARN] EFS write failed ({efs_path}): {e}")
 
 
 # ============================================================
@@ -125,9 +142,9 @@ def process_incoming_data(payload_str: str, args):
         history_file = HISTORY_DIR / f"data_{ts}_{device_id}.csv"
         history_file.write_text(csv_data, encoding='utf-8')
 
-        # --- Upload GCS ---
-        gcs_client.upload_file(CSV_PATH, GCS_CSV_PATH)
-        gcs_client.upload_string(csv_data, f"data/history/data_{ts}_{device_id}.csv")
+        # --- Sao lưu EFS ---
+        _efs_write(EFS_CSV, csv_data)
+        _efs_write(EFS_HISTORY_DIR / f"data_{ts}_{device_id}.csv", csv_data)
 
         worker_status['last_data_received'] = datetime.now().isoformat()
 
@@ -179,10 +196,6 @@ def run_inference(args):
             print(stdout_tail)
 
             if FORECAST_PATH.exists():
-                # --- Upload forecast mới nhất lên GCS ---
-                gcs_client.upload_file(FORECAST_PATH, GCS_FORECAST_PATH)
-
-                # --- Lưu + upload forecast history ---
                 ts_hist   = datetime.now().strftime('%Y%m%d_%H%M%S')
                 hist_file = FORECAST_HISTORY_DIR / f"forecast_{ts_hist}.json"
 
@@ -194,13 +207,17 @@ def run_inference(args):
                     'saved_at': datetime.now().isoformat(),
                     **forecast_data,
                 }
-                with open(hist_file, 'w', encoding='utf-8') as f:
-                    json.dump(history_entry, f, ensure_ascii=False, indent=2)
+                hist_content = json.dumps(history_entry, ensure_ascii=False, indent=2)
 
-                gcs_client.upload_file(hist_file, f"forecasts/history/forecast_{ts_hist}.json")
+                # --- Lưu local ---
+                hist_file.write_text(hist_content, encoding='utf-8')
+
+                # --- Sao lưu EFS ---
+                _efs_write(EFS_FORECAST, FORECAST_PATH.read_text(encoding='utf-8'))
+                _efs_write(EFS_FORECAST_HIST / f"forecast_{ts_hist}.json", hist_content)
 
                 n = len(forecast_data.get('forecast', []))
-                print(f"[INFERENCE] {n} steps → GCS uploaded")
+                print(f"[INFERENCE] {n} steps saved local + EFS")
 
             worker_status['last_inference_run']  = datetime.now().isoformat()
             worker_status['last_inference_time'] = round(elapsed, 2)
@@ -296,7 +313,6 @@ def main():
 
     init_dirs()
 
-    bucket = os.environ.get('GCS_BUCKET', '')
     print("=" * 60)
     print("  INFERENCE WORKER  —  Dual TCN + GCS")
     print("=" * 60)
@@ -306,7 +322,7 @@ def main():
     print(f"  TCN-Hard   : {args.tcn_hard}")
     print(f"  Classifier : {args.classifier or 'N/A'}")
     print(f"  Device     : {args.device}")
-    print(f"  GCS Bucket : {f'gs://{bucket}' if bucket else 'DISABLED (set GCS_BUCKET)'}")
+    print(f"  EFS Base   : {EFS_BASE}")
     print("=" * 60)
 
     worker_status['started_at'] = datetime.now().isoformat()
