@@ -28,6 +28,7 @@ import sys
 import threading
 import time
 from datetime import datetime
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 try:
@@ -268,6 +269,36 @@ def start_mqtt_subscriber(args):
 
 
 # ============================================================
+# Health Check Server
+# ============================================================
+
+HEALTH_PORT = int(os.environ.get('HEALTH_PORT', 8080))
+
+
+def _start_health_server():
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = json.dumps({
+                'status':           'ok',
+                'started_at':       worker_status.get('started_at'),
+                'inference_count':  worker_status.get('inference_count', 0),
+                'last_inference':   worker_status.get('last_inference_run'),
+            }).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass  # tắt access log
+
+    server = HTTPServer(('0.0.0.0', HEALTH_PORT), Handler)
+    t = threading.Thread(target=server.serve_forever, daemon=True, name="health")
+    t.start()
+    print(f"[HEALTH] Listening on port {HEALTH_PORT}")
+
+
+# ============================================================
 # Main
 # ============================================================
 
@@ -314,6 +345,7 @@ def main():
 
     worker_status['started_at'] = datetime.now().isoformat()
 
+    _start_health_server()
     mqtt_client = start_mqtt_subscriber(args)
 
     try:

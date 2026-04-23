@@ -38,12 +38,15 @@ services:
     container_name: inference_worker
     depends_on:
       - mosquitto
+    ports:
+      - "8080:8080"                        # health check endpoint
     volumes:
       - ./server:/app/server               # code
       - ./models:/app/models               # model .pth files
       - /mnt/efs/fs1:/mnt/efs/fs1          # EFS shared storage
     environment:
       - EFS_BASE=/mnt/efs/fs1
+      - HEALTH_PORT=8080
     command: >
       python server/worker.py
         --broker     mosquitto
