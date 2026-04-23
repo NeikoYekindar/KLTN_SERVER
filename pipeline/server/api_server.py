@@ -40,16 +40,10 @@ from flask_cors import CORS
 # Config
 # ============================================================
 
-# Local paths (cùng thư mục với worker.py, mounted vào /app/data)
-LOCAL_CSV         = "data/last_48h.csv"
-LOCAL_FORECAST    = "data/forecast_result.json"
-LOCAL_HISTORY_DIR = "data/forecast_history"
-
-# EFS paths (bản sao backup)
-EFS_BASE         = os.environ.get('EFS_BASE', '/mnt/efs/fs1')
-EFS_CSV          = f"{EFS_BASE}/data/last_48h.csv"
-EFS_FORECAST     = f"{EFS_BASE}/forecasts/forecast_result.json"
-EFS_HISTORY_DIR  = f"{EFS_BASE}/forecasts/history"
+EFS_BASE      = os.environ.get('EFS_BASE', '/mnt/efs/fs1')
+CSV_PATH      = f"{EFS_BASE}/data/last_48h.csv"
+FORECAST_PATH = f"{EFS_BASE}/data/forecast_result.json"
+HISTORY_DIR   = f"{EFS_BASE}/forecasts/history"
 
 _started_at = datetime.now().isoformat()
 
@@ -66,10 +60,10 @@ CORS(app)
 # ----------------------------------------------------------
 @app.route('/api/forecast', methods=['GET'])
 def get_forecast():
-    if not os.path.exists(LOCAL_FORECAST):
+    if not os.path.exists(FORECAST_PATH):
         return jsonify({'error': 'No forecast available yet'}), 404
     try:
-        with open(LOCAL_FORECAST, 'r', encoding='utf-8') as f:
+        with open(FORECAST_PATH, 'r', encoding='utf-8') as f:
             return jsonify(json.load(f))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -80,10 +74,10 @@ def get_forecast():
 # ----------------------------------------------------------
 @app.route('/api/forecast/latest', methods=['GET'])
 def get_latest_step():
-    if not os.path.exists(LOCAL_FORECAST):
+    if not os.path.exists(FORECAST_PATH):
         return jsonify({'error': 'No forecast available'}), 404
     try:
-        with open(LOCAL_FORECAST, 'r', encoding='utf-8') as f:
+        with open(FORECAST_PATH, 'r', encoding='utf-8') as f:
             data = json.load(f)
         steps = data.get('forecast', [])
         if not steps:
@@ -98,10 +92,10 @@ def get_latest_step():
 # ----------------------------------------------------------
 @app.route('/api/forecast/step/<int:step>', methods=['GET'])
 def get_forecast_step(step):
-    if not os.path.exists(LOCAL_FORECAST):
+    if not os.path.exists(FORECAST_PATH):
         return jsonify({'error': 'No forecast available'}), 404
     try:
-        with open(LOCAL_FORECAST, 'r', encoding='utf-8') as f:
+        with open(FORECAST_PATH, 'r', encoding='utf-8') as f:
             data = json.load(f)
         for entry in data.get('forecast', []):
             if entry.get('horizon_step') == step:
@@ -117,7 +111,7 @@ def get_forecast_step(step):
 @app.route('/api/forecast/history', methods=['GET'])
 def get_forecast_history():
     limit = request.args.get('limit', 20, type=int)
-    files = sorted(glob.glob(f"{LOCAL_HISTORY_DIR}/forecast_*.json"), reverse=True)[:limit]
+    files = sorted(glob.glob(f"{HISTORY_DIR}/forecast_*.json"), reverse=True)[:limit]
     history = []
     for path in files:
         filename = os.path.basename(path)
@@ -131,7 +125,7 @@ def get_forecast_history():
 # ----------------------------------------------------------
 @app.route('/api/forecast/history/<run_id>', methods=['GET'])
 def get_forecast_history_detail(run_id):
-    path = f"{LOCAL_HISTORY_DIR}/forecast_{run_id}.json"
+    path = f"{HISTORY_DIR}/forecast_{run_id}.json"
     if not os.path.exists(path):
         return jsonify({'error': f'run_id "{run_id}" not found'}), 404
     try:
@@ -146,10 +140,10 @@ def get_forecast_history_detail(run_id):
 # ----------------------------------------------------------
 @app.route('/api/current', methods=['GET'])
 def get_current_data():
-    if not os.path.exists(LOCAL_CSV):
+    if not os.path.exists(CSV_PATH):
         return jsonify({'error': 'No sensor data yet'}), 404
     try:
-        with open(LOCAL_CSV, 'r', encoding='utf-8') as f:
+        with open(CSV_PATH, 'r', encoding='utf-8') as f:
             rows = list(csv.DictReader(f))
         if not rows:
             return jsonify({'error': 'CSV is empty'}), 404
@@ -171,11 +165,11 @@ def get_status():
     return jsonify({
         'status':             'running',
         'started_at':         _started_at,
-        'local_data':         LOCAL_CSV,
         'efs_base':           EFS_BASE,
-        'has_forecast':       os.path.exists(LOCAL_FORECAST),
-        'has_sensor_data':    os.path.exists(LOCAL_CSV),
-        'history_count':      len(glob.glob(f"{LOCAL_HISTORY_DIR}/forecast_*.json")),
+        'csv_path':           CSV_PATH,
+        'has_forecast':       os.path.exists(FORECAST_PATH),
+        'has_sensor_data':    os.path.exists(CSV_PATH),
+        'history_count':      len(glob.glob(f"{HISTORY_DIR}/forecast_*.json")),
     })
 
 
@@ -200,31 +194,17 @@ def upload_csv():
     if not rows:
         return jsonify({'error': 'CSV file is empty or invalid'}), 400
 
-    # Lưu local (primary)
-    Path(LOCAL_CSV).parent.mkdir(parents=True, exist_ok=True)
-    with open(LOCAL_CSV, 'w', encoding='utf-8', newline='') as f:
+    Path(CSV_PATH).parent.mkdir(parents=True, exist_ok=True)
+    with open(CSV_PATH, 'w', encoding='utf-8', newline='') as f:
         f.write(csv_text)
-    print(f"[API] CSV saved local: {file.filename} → {LOCAL_CSV} ({len(rows)} rows)")
-
-    # Sao lưu sang EFS
-    efs_ok = False
-    try:
-        Path(EFS_CSV).parent.mkdir(parents=True, exist_ok=True)
-        with open(EFS_CSV, 'w', encoding='utf-8', newline='') as f:
-            f.write(csv_text)
-        print(f"[API] CSV backed up EFS → {EFS_CSV}")
-        efs_ok = True
-    except Exception as e:
-        print(f"[WARN] EFS backup failed: {e}")
+    print(f"[API] CSV saved → {CSV_PATH} ({len(rows)} rows)")
 
     return jsonify({
-        'message':    'CSV đã lưu',
-        'filename':   file.filename,
-        'local_path': LOCAL_CSV,
-        'efs_path':   EFS_CSV if efs_ok else None,
-        'efs_ok':     efs_ok,
-        'num_rows':   len(rows),
-        'columns':    list(rows[0].keys()),
+        'message':  'CSV đã lưu',
+        'filename': file.filename,
+        'path':     CSV_PATH,
+        'num_rows': len(rows),
+        'columns':  list(rows[0].keys()),
     })
 
 
@@ -239,8 +219,8 @@ def main():
     print("=" * 60)
     print("  FORECAST API SERVER  —  AWS EFS Edition")
     print("=" * 60)
-    print(f"  Local data : {LOCAL_CSV}")
-    print(f"  EFS backup : {EFS_BASE}")
+    print(f"  EFS Base   : {EFS_BASE}")
+    print(f"  CSV        : {CSV_PATH}")
     print(f"  API        : http://{api_host}:{api_port}")
     print("=" * 60)
     print("[API] Endpoints:")

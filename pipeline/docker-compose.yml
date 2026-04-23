@@ -41,8 +41,7 @@ services:
     volumes:
       - ./server:/app/server               # code
       - ./models:/app/models               # model .pth files
-      - ./data:/app/data                   # local data (primary)
-      - /mnt/efs/fs1:/mnt/efs/fs1          # EFS thật từ host EC2
+      - /mnt/efs/fs1:/mnt/efs/fs1          # EFS shared storage
     environment:
       - EFS_BASE=/mnt/efs/fs1
     command: >
@@ -65,8 +64,7 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      - ./data:/app/data                   # local data (primary)
-      - /mnt/efs/fs1:/mnt/efs/fs1          # EFS thật từ host EC2
+      - /mnt/efs/fs1:/mnt/efs/fs1          # EFS shared storage
     environment:
       - EFS_BASE=/mnt/efs/fs1
       - GCS_REFRESH_INTERVAL=${GCS_REFRESH_INTERVAL:-60}

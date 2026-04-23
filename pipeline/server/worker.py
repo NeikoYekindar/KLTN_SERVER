@@ -42,23 +42,14 @@ import gcs_client
 # Paths
 # ============================================================
 
-DATA_DIR             = Path("data")
+EFS_BASE = os.environ.get('EFS_BASE', '/mnt/efs/fs1')
+
 MODELS_DIR           = Path("models")
+DATA_DIR             = Path(EFS_BASE) / "data"
 CSV_PATH             = DATA_DIR / "last_48h.csv"
 FORECAST_PATH        = DATA_DIR / "forecast_result.json"
 HISTORY_DIR          = DATA_DIR / "history"
-FORECAST_HISTORY_DIR = DATA_DIR / "forecast_history"
-
-# GCS paths (relative inside bucket)
-GCS_CSV_PATH      = "data/last_48h.csv"
-GCS_FORECAST_PATH = "forecasts/forecast_result.json"
-
-# EFS paths (sao lưu sang AWS EFS)
-EFS_BASE         = os.environ.get('EFS_BASE', '/mnt/efs/fs1')
-EFS_CSV          = Path(EFS_BASE) / "data" / "last_48h.csv"
-EFS_HISTORY_DIR  = Path(EFS_BASE) / "data" / "history"
-EFS_FORECAST     = Path(EFS_BASE) / "forecasts" / "forecast_result.json"
-EFS_FORECAST_HIST = Path(EFS_BASE) / "forecasts" / "history"
+FORECAST_HISTORY_DIR = Path(EFS_BASE) / "forecasts" / "history"
 
 # ============================================================
 # State
@@ -83,14 +74,6 @@ def _log_error(msg: str):
         worker_status['errors'] = worker_status['errors'][-20:]
 
 
-def _efs_write(efs_path: Path, content: str):
-    """Ghi nội dung lên EFS — lỗi chỉ log, không raise."""
-    try:
-        efs_path.parent.mkdir(parents=True, exist_ok=True)
-        efs_path.write_text(content, encoding='utf-8')
-        print(f"[EFS] ↑ {efs_path}")
-    except Exception as e:
-        print(f"[WARN] EFS write failed ({efs_path}): {e}")
 
 
 # ============================================================
@@ -136,10 +119,10 @@ def process_incoming_data(payload_str: str, args):
 
         print(f"[DATA] csv_data OK ({len(csv_data)} bytes)")
 
-        # --- Save local ---
+        # --- Ghi vào EFS ---
         try:
             CSV_PATH.write_text(csv_data, encoding='utf-8')
-            print(f"[DATA] Saved local → {CSV_PATH}")
+            print(f"[DATA] Saved → {CSV_PATH}")
         except Exception as e:
             _log_error(f"Cannot write {CSV_PATH}: {e}")
             return
@@ -151,12 +134,6 @@ def process_incoming_data(payload_str: str, args):
             print(f"[DATA] Saved history → {history_file}")
         except Exception as e:
             _log_error(f"Cannot write history file: {e}")
-            # Continue to inference anyway
-
-        # --- Sao lưu EFS ---
-        _efs_write(EFS_CSV, csv_data)
-        _efs_write(EFS_HISTORY_DIR / f"data_{ts}_{device_id}.csv", csv_data)
-
 
         worker_status['last_data_received'] = datetime.now().isoformat()
 
@@ -224,15 +201,10 @@ def run_inference(args):
                 }
                 hist_content = json.dumps(history_entry, ensure_ascii=False, indent=2)
 
-                # --- Lưu local ---
                 hist_file.write_text(hist_content, encoding='utf-8')
 
-                # --- Sao lưu EFS ---
-                _efs_write(EFS_FORECAST, FORECAST_PATH.read_text(encoding='utf-8'))
-                _efs_write(EFS_FORECAST_HIST / f"forecast_{ts_hist}.json", hist_content)
-
                 n = len(forecast_data.get('forecast', []))
-                print(f"[INFERENCE] {n} steps saved local + EFS")
+                print(f"[INFERENCE] {n} steps saved → {hist_file}")
 
             worker_status['last_inference_run']  = datetime.now().isoformat()
             worker_status['last_inference_time'] = round(elapsed, 2)
