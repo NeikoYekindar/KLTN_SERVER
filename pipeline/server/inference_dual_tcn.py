@@ -513,6 +513,58 @@ def print_table(pred, cols, horizon, last_ts, title=''):
     print('=' * 76)
 
 
+RAIN_CONDITIONS = {
+    'Patchy rain possible',
+    'Light rain',
+    'Light rain shower',
+    'Moderate rain at times',
+    'Moderate rain',
+    'Heavy rain at times',
+    'Heavy rain',
+    'Moderate or heavy rain shower',
+    'Torrential rain shower',
+    'Thundery outbreaks possible',
+    'Patchy light rain',
+    'Patchy light rain with thunder',
+    'Patchy moderate rain',
+    'Moderate or heavy rain with thunder',
+}
+
+def fix_consistency(forecast: list) -> list:
+    """
+    Chỉ override khi mâu thuẫn cực đoan.
+    Không override rain_prob=45 vì đó là vùng uncertain.
+    """
+    fixed_count = 0
+    for step in forecast:
+        rp     = step.get('rain_probability', 0)
+        cond   = step.get('condition', '')
+        cloud  = step.get('cloud', 50)
+        precip = step.get('precipitation', 0)
+
+        # Chỉ fix khi rain_prob=0 VÀ precipitation cũng rất nhỏ
+        # → cả 2 model đều nói không mưa, condition classifier bị sai
+        if rp == 0 and precip < 0.05 and cond in RAIN_CONDITIONS:
+            if cloud < 25:
+                step['condition'] = 'Sunny'
+            elif cloud < 60:
+                step['condition'] = 'Partly Cloudy'
+            elif cloud < 85:
+                step['condition'] = 'Cloudy'
+            else:
+                step['condition'] = 'Overcast'
+            fixed_count += 1
+
+        # Khi rain_prob=100 VÀ precip cũng lớn mà condition không phải rain
+        elif rp == 100 and precip >= 0.1 and cond not in RAIN_CONDITIONS:
+            step['condition'] = 'Patchy rain possible'
+            fixed_count += 1
+
+    if fixed_count:
+        print(f"  [CONSISTENCY] Fixed {fixed_count} inconsistent steps")
+    return forecast
+
+
 def save_json(pred_tcn, cols_tcn, pred_hard, cols_hard,
               horizon, last_ts, output_path,
               tcn_path, tcn_hard_path,
@@ -549,6 +601,7 @@ def save_json(pred_tcn, cols_tcn, pred_hard, cols_hard,
         conditions = predict_conditions(classifier_ckpt, forecast)
         for hi, cond in enumerate(conditions):
             forecast[hi]['condition'] = cond
+        forecast = fix_consistency(forecast)
 
     # Bước 4: build result dict
     all_target_cols = (
