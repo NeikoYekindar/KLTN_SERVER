@@ -625,7 +625,7 @@ def fix_consistency(forecast: list) -> list:
         # Rule 2: Không mưa (rain_prob=0 VÀ precip nhỏ)
         # → 2 model đều nói không mưa → dùng cloud + giờ
         # --------------------------------------------------------
-        elif rp == 0 and precip < 0.05:
+        elif rp == 0 and precip < 0.1:
             if cond in RAIN_CONDITIONS or cond in MIST_CONDITIONS:
                 step['condition'] = _cloud_to_condition(cloud, hour)
 
