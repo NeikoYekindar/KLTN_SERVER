@@ -8,10 +8,9 @@ No Flask API — background worker only.
 Usage:
     python server/worker.py \
         --broker   localhost \
-        --tcn               models/tcn_model.pth \
-        --tcn_hard          models/tcn_hard_model.pth \
-        --classifier        models/condition_classifier.pkl \
-        --rain_prob_classifier models/rain_prob_classifier.pkl
+        --tcn      models/tcn_model.pth \
+        --tcn_hard models/tcn_hard_model.pth \
+        --classifier models/condition_classifier.pkl
 
 Env vars:
     GCS_BUCKET                      — GCS bucket name (required for upload)
@@ -177,8 +176,6 @@ def run_inference(args):
         ]
         if args.classifier:
             cmd.extend(['--classifier', args.classifier])
-        if args.rain_prob_classifier:
-            cmd.extend(['--rain_prob_classifier', args.rain_prob_classifier])
 
         print(f"\n[INFERENCE] Running: {' '.join(cmd)}")
         t0 = time.time()
@@ -317,10 +314,7 @@ def main():
     parser.add_argument('--inference-script', default='server/inference_dual_tcn.py')
     parser.add_argument('--tcn',              required=True)
     parser.add_argument('--tcn_hard',         required=True)
-    parser.add_argument('--classifier',            default=None,
-                        help='Condition classifier .pkl')
-    parser.add_argument('--rain_prob_classifier',  default=None,
-                        help='Rain probability classifier .pkl (outputs 0/45/100%%)')
+    parser.add_argument('--classifier',       default=None)
     parser.add_argument('--device',           default=None)
 
     args = parser.parse_args()
@@ -331,12 +325,6 @@ def main():
     for attr, label in [('tcn', '--tcn'), ('tcn_hard', '--tcn_hard')]:
         if not os.path.exists(getattr(args, attr)):
             parser.error(f"{label}: file not found")
-
-    if args.classifier and not os.path.exists(args.classifier):
-        parser.error(f"--classifier: file not found '{args.classifier}'")
-
-    if args.rain_prob_classifier and not os.path.exists(args.rain_prob_classifier):
-        parser.error(f"--rain_prob_classifier: file not found '{args.rain_prob_classifier}'")
 
     if not os.path.exists(args.inference_script):
         parser.error(f"--inference-script: not found '{args.inference_script}'")
@@ -349,9 +337,8 @@ def main():
     print(f"  MQTT       : {args.broker}:{args.mqtt_port}")
     print(f"  Topic      : {args.topic}")
     print(f"  TCN        : {args.tcn}")
-    print(f"  TCN-Hard        : {args.tcn_hard}")
-    print(f"  Classifier      : {args.classifier or 'N/A'}")
-    print(f"  Rain Prob Class : {args.rain_prob_classifier or 'N/A'}")
+    print(f"  TCN-Hard   : {args.tcn_hard}")
+    print(f"  Classifier : {args.classifier or 'N/A'}")
     print(f"  Device     : {args.device}")
     print(f"  EFS Base   : {EFS_BASE}")
     print("=" * 60)

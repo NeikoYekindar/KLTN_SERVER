@@ -13,13 +13,6 @@ Env vars (optional):
     API_HOST   — Flask host (default 0.0.0.0)
     API_PORT   — Flask port (default 5000)
 
-Forecast step fields:
-    timestamp, horizon_step,
-    temperature, humidity, wind_speed, pressure, visibility,  ← TCN Model 1
-    wind_direction, precipitation, cloud,                     ← TCN Hard Model
-    rain_probability,                                         ← Rain Prob Classifier (0/45/100)
-    condition                                                  ← Condition Classifier
-
 Endpoints:
     GET  /api/forecast
     GET  /api/forecast/latest
@@ -106,11 +99,6 @@ def get_forecast_step(step):
             data = json.load(f)
         for entry in data.get('forecast', []):
             if entry.get('horizon_step') == step:
-                # Đảm bảo rain_probability luôn là một trong 3 giá trị hợp lệ
-                rp = entry.get('rain_probability')
-                if rp is not None and rp not in (0, 45, 100, 0.0, 45.0, 100.0):
-                    entry['rain_probability_raw'] = rp
-                    entry['rain_probability'] = min([0, 45, 100], key=lambda v: abs(v - rp))
                 return jsonify(entry)
         return jsonify({'error': f'Step {step} not found (1–24)'}), 404
     except Exception as e:
@@ -174,22 +162,6 @@ def get_current_data():
 # ----------------------------------------------------------
 @app.route('/api/status', methods=['GET'])
 def get_status():
-    forecast_info = {}
-    if os.path.exists(FORECAST_PATH):
-        try:
-            with open(FORECAST_PATH, 'r', encoding='utf-8') as f:
-                fd = json.load(f)
-            steps = fd.get('forecast', [])
-            # Kiểm tra rain_probability có trong forecast không
-            has_rain_prob = any('rain_probability' in s for s in steps)
-            forecast_info = {
-                'steps':        len(steps),
-                'has_rain_probability': has_rain_prob,
-                'generated_at': fd.get('generated_at'),
-            }
-        except Exception:
-            pass
-
     return jsonify({
         'status':             'running',
         'started_at':         _started_at,
@@ -198,7 +170,6 @@ def get_status():
         'has_forecast':       os.path.exists(FORECAST_PATH),
         'has_sensor_data':    os.path.exists(CSV_PATH),
         'history_count':      len(glob.glob(f"{HISTORY_DIR}/forecast_*.json")),
-        'forecast_info':      forecast_info,
     })
 
 
