@@ -635,7 +635,14 @@ def fix_consistency(forecast: list) -> list:
 
             # Kiểm tra: ban ngày cloud < 25% nhưng classifier cho Cloudy
             elif _is_daytime(hour) and cloud < 25 and cond not in CLEAR_CONDITIONS:
-                if cloud < 25:
+                step['condition'] = 'Sunny'
+
+            # ← THÊM VÀO ĐÂY
+            # Mùa khô TPHCM (tháng 11-4), buổi sáng 7h-10h
+            # cloud forecast bị smooth nhưng thực tế thường quang đãng
+            elif _is_daytime(hour) and cloud < 50 and cond not in CLEAR_CONDITIONS:
+                month = pd.to_datetime(step['timestamp']).month
+                if month in (11, 12, 1, 2, 3, 4) and 7 <= hour <= 10:
                     step['condition'] = 'Sunny'
 
         # --------------------------------------------------------
