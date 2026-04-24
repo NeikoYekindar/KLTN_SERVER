@@ -8,6 +8,12 @@ version: '3.8'
 #   worker      — MQTT subscriber + dual TCN inference + ghi EFS
 #   api         — Flask API đọc local data + sao lưu EFS
 #
+
+# Models cần có trong ./models/:
+#   tcn_model.pth               — TCN Model 1 (easy targets)
+#   tcn_hard_model.pth          — TCN Hard Model (wind_dir, precip, cloud)
+#   condition_classifier.pkl    — Condition classifier
+#   rain_prob_classifier.pkl    — Rain probability classifier (0/45/100%)
 # Yêu cầu host EC2: EFS đã mount tại /mnt/efs/fs1
 #   sudo mount -t nfs4 <efs-id>.efs.<region>.amazonaws.com:/ /mnt/efs/fs1
 #
@@ -49,13 +55,14 @@ services:
       - HEALTH_PORT=8080
     command: >
       python server/worker.py
-        --broker     mosquitto
-        --mqtt-port  1883
-        --topic      weather/data
-        --tcn        models/tcn_model.pth
-        --tcn_hard   models/tcn_hard_model.pth
-        --classifier models/condition_classifier.pkl
-        --inference-script server/inference_dual_tcn.py
+        --broker               mosquitto
+        --mqtt-port            1883
+        --topic                weather/data
+        --tcn                  models/tcn_model.pth
+        --tcn_hard             models/tcn_hard_model.pth
+        --classifier           models/condition_classifier.pkl
+        --rain_prob_classifier models/rain_prob_classifier.pkl
+        --inference-script     server/inference_dual_tcn.py
     restart: unless-stopped
 
   # ===== Flask API Server =====
