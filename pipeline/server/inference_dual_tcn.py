@@ -635,7 +635,8 @@ def fix_consistency(forecast: list) -> list:
 
             # Kiểm tra: ban ngày cloud < 25% nhưng classifier cho Cloudy
             elif _is_daytime(hour) and cloud < 25 and cond not in CLEAR_CONDITIONS:
-                step['condition'] = 'Sunny'
+                if cloud < 25:
+                    step['condition'] = 'Sunny'
 
         # --------------------------------------------------------
         # Rule 3: Chắc chắn mưa (rain_prob=100 VÀ precip đáng kể)
