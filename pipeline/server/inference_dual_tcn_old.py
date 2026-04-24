@@ -10,19 +10,11 @@ Two models with different architectures:
       scaler  : target_scaler_mean / target_scaler_scale  (StandardScaler)
 
   HardTargetForecaster (tcn_hard_model_24h.pth - train_tcn_hard.py)
-      targets : wind_direction, precipitation, cloud
-      scaler  : precip_scaler (separate)
+      targets : wind_direction, precip_has_rain, precip_amount,
+                rain_probability, gust_speed, cloud
+      scaler  : gust_scaler, precip_scaler (separate)
       special : features need wind_dir_sin / wind_dir_cos
                 wind_dir output = sin+cos -> atan2 -> degrees
-
-  RainProbClassifier   (rain_prob_classifier.pkl)
-      input   : humidity, cloud, pressure, temperature,
-                precipitation, wind_speed, visibility
-      output  : rain_probability — 0 / 45 / 100 (%)
-
-  ConditionClassifier  (condition_classifier.pkl)
-      input   : output của 2 TCN model + rain_probability
-      output  : "Clear", "Cloudy", "Rain", ...
 
 Usage:
     python inference_dual_tcn.py \
@@ -31,13 +23,11 @@ Usage:
         --csv      latest_48h.csv
 
     python inference_dual_tcn.py \
-        --tcn                  tcn_model_24h.pth \
-        --tcn_hard             tcn_hard_model_24h.pth \
-        --csv                  latest_48h.csv \
-        --output               forecast_24h.json \
-        --device               cuda \
-        --classifier           condition_classifier.pkl \
-        --rain_prob_classifier rain_prob_classifier.pkl
+        --tcn      tcn_model_24h.pth \
+        --tcn_hard tcn_hard_model_24h.pth \
+        --csv      latest_48h.csv \
+        --output   forecast_24h.json \
+        --device   cuda
 =============================================================================
 """
 
@@ -131,7 +121,6 @@ if TORCH_OK:
 
     # ----------------------------------------------------------
     # Model 2: HardTargetForecaster  (train_tcn_hard.py)
-    # rain_probability đã bị loại bỏ — chỉ còn wind_dir, precip, cloud
     # ----------------------------------------------------------
     class TCNBackbone(nn.Module):
         def __init__(self, num_features, num_channels, kernel_size, dropout):
@@ -166,21 +155,24 @@ if TORCH_OK:
                     layers.append(nn.Sigmoid())
                 return nn.Sequential(*layers)
 
-            self.wind_dir_head = _head(horizon * 2)
-            self.precip_head   = nn.Sequential(
+            self.wind_dir_head    = _head(horizon * 2)
+            self.precip_head      = nn.Sequential(
                 nn.Linear(last_ch, 64), nn.ReLU(),
                 nn.Dropout(dropout),
                 nn.Linear(64, horizon),
             )
-            # rain_prob_head đã bị loại — dùng RainProbClassifier riêng
-            self.cloud_head    = _head(horizon, sigmoid=True)
+            self.rain_prob_head   = _head(horizon, sigmoid=True)
+            # self.gust_head        = _head(horizon)
+            self.cloud_head       = _head(horizon, sigmoid=True)
 
         def forward(self, x):
             feat = self.backbone(x)
             return {
-                'wind_dir': self.wind_dir_head(feat).view(-1, self.horizon, 2),
-                'precip':   self.precip_head(feat).view(-1, self.horizon, 1),
-                'cloud':    self.cloud_head(feat).view(-1, self.horizon, 1),
+                'wind_dir':     self.wind_dir_head(feat).view(-1, self.horizon, 2),
+                'precip':       self.precip_head(feat).view(-1, self.horizon, 1),
+                'rain_prob':    self.rain_prob_head(feat).view(-1, self.horizon, 1),
+                # 'gust':         self.gust_head(feat).view(-1, self.horizon, 1),
+                'cloud':        self.cloud_head(feat).view(-1, self.horizon, 1),
             }
 
 
@@ -275,9 +267,9 @@ def predict_tcn(tcn_path: str, csv_path: str, device_str: str = 'cpu'):
     tgt_sc.var_            = tgt_sc.scale_ ** 2
     tgt_sc.n_features_in_  = len(tgt_sc.mean_)
 
-    df  = load_csv(csv_path, feature_cols, lookback)
-    X   = feat_sc.transform(df[feature_cols].values.astype(np.float32))
-    x_t = torch.FloatTensor(X).unsqueeze(0).to(device)
+    df      = load_csv(csv_path, feature_cols, lookback)
+    X       = feat_sc.transform(df[feature_cols].values.astype(np.float32))
+    x_t     = torch.FloatTensor(X).unsqueeze(0).to(device)
 
     with torch.no_grad():
         out = model(x_t).cpu().numpy()
@@ -292,7 +284,6 @@ def predict_tcn(tcn_path: str, csv_path: str, device_str: str = 'cpu'):
 
 # ============================================================
 # 4. Inference - HardTargetForecaster
-# rain_probability KHÔNG còn ở đây — đã chuyển sang RainProbClassifier
 # ============================================================
 
 def predict_tcn_hard(tcn_hard_path: str, csv_path: str, device_str: str = 'cpu'):
@@ -324,6 +315,12 @@ def predict_tcn_hard(tcn_hard_path: str, csv_path: str, device_str: str = 'cpu')
     feat_sc.var_           = feat_sc.scale_ ** 2
     feat_sc.n_features_in_ = len(feat_sc.mean_)
 
+    # gust_sc = StandardScaler()
+    # gust_sc.mean_          = np.array([ckpt['gust_scaler_mean']])
+    # gust_sc.scale_         = np.array([ckpt['gust_scaler_scale']])
+    # gust_sc.var_           = gust_sc.scale_ ** 2
+    # gust_sc.n_features_in_ = 1
+
     precip_sc = StandardScaler()
     precip_sc.mean_          = np.array([ckpt['precip_scaler_mean']])
     precip_sc.scale_         = np.array([ckpt['precip_scaler_scale']])
@@ -353,22 +350,32 @@ def predict_tcn_hard(tcn_hard_path: str, csv_path: str, device_str: str = 'cpu')
     with torch.no_grad():
         out = model(x_t)
 
-    # wind_direction: sin/cos → degrees
     wind_sin = out['wind_dir'][0, :, 0].cpu().numpy()
     wind_cos = out['wind_dir'][0, :, 1].cpu().numpy()
     wind_deg = (np.degrees(np.arctan2(wind_sin, wind_cos)) % 360)
 
-    # precipitation: inverse scale + clip
-    precip_sc_in = out['precip'][0, :, 0].cpu().numpy().reshape(-1, 1)
-    precip_mm    = precip_sc.inverse_transform(precip_sc_in).flatten()
-    precip_mm    = np.clip(precip_mm, 0.0, None)
 
-    # cloud: sigmoid output × 100
+    precip_sc_in = out['precip'][0, :, 0].cpu().numpy().reshape(-1, 1)
+    precip_mm = precip_sc.inverse_transform(precip_sc_in).flatten()
+    precip_mm = np.clip(precip_mm, 0.0, None)
+
+    rain_prob_pct = out['rain_prob'][0, :, 0].cpu().numpy() * 100.0
+
+    # gust_sc_in = out['gust'][0, :, 0].cpu().numpy().reshape(-1, 1)
+    # gust_kmh = gust_sc.inverse_transform(gust_sc_in).flatten()
+    # gust_kmh = np.clip(gust_kmh, 0.0, None)
+
     cloud_pct = out['cloud'][0, :, 0].cpu().numpy() * 100.0
 
-    # rain_probability KHÔNG còn ở đây
-    pred = np.stack([wind_deg, precip_mm, cloud_pct], axis=1)
-    target_cols = ['wind_direction', 'precipitation', 'cloud']
+    pred = np.stack([
+        wind_deg, precip_mm,
+        rain_prob_pct, cloud_pct,
+    ], axis=1) #gust_kmh,
+
+    target_cols = [
+        'wind_direction', 'precipitation',
+        'rain_probability',  'cloud',
+    ]#'gust_speed',
 
     last_ts = get_last_timestamp(df)
     return pred, target_cols, horizon, last_ts
@@ -382,10 +389,11 @@ def postprocess(pred: np.ndarray, target_cols: list) -> np.ndarray:
     pred = pred.copy()
     for ti, col in enumerate(target_cols):
         c = col.lower()
-        if any(k in c for k in ('humidity', 'cloud')):
+        if any(k in c for k in ('humidity', 'cloud', 'rain_probability')):
             pred[:, ti] = np.clip(pred[:, ti], 0.0, 100.0)
         elif any(k in c for k in ('wind_speed', 'uv_index',
                                    'visibility', 'precipitation')):
+            #, 'gust_speed'
             pred[:, ti] = np.clip(pred[:, ti], 0.0, None)
         elif 'wind_direction' in c:
             pred[:, ti] = pred[:, ti] % 360.0
@@ -393,58 +401,11 @@ def postprocess(pred: np.ndarray, target_cols: list) -> np.ndarray:
 
 
 # ============================================================
-# 5b. Rain Probability Classifier
+# 5b. Condition Classifier
 # ============================================================
 
-def load_rain_prob_classifier(classifier_path: str) -> dict:
-    """Load rain probability classifier từ file .pkl"""
-    import pickle
-    with open(classifier_path, 'rb') as f:
-        ckpt = pickle.load(f)
-    print(f"  [RAIN_PROB] Loaded: {classifier_path}")
-    print(f"  [RAIN_PROB] Classes: {ckpt['class_names']}")
-    return ckpt
 
-
-def predict_rain_probabilities(rain_prob_ckpt: dict, forecast: list) -> list:
-    """
-    Dự đoán rain_probability (0 / 45 / 100) cho từng step.
-
-    Args:
-        rain_prob_ckpt : dict từ load_rain_prob_classifier()
-        forecast       : list of dict, mỗi dict là 1 step forecast
-                         (cần có đủ các feature trong ckpt['features'])
-
-    Returns:
-        list of float: 0.0, 45.0, hoặc 100.0 cho mỗi step
-    """
-    model          = rain_prob_ckpt['model']
-    scaler         = rain_prob_ckpt['scaler']
-    features       = rain_prob_ckpt['features']
-    class_to_value = rain_prob_ckpt['class_to_value']
-
-    rain_probs = []
-    for step in forecast:
-        try:
-            x = np.array(
-                [[step.get(f, 0.0) for f in features]],
-                dtype=np.float32
-            )
-            x_scaled  = scaler.transform(x)
-            cls_idx   = int(model.predict(x_scaled)[0])
-            rain_probs.append(float(class_to_value[cls_idx]))
-        except Exception as e:
-            print(f"  [RAIN_PROB WARN] Step {step.get('horizon_step')}: {e}")
-            rain_probs.append(0.0)
-
-    return rain_probs
-
-
-# ============================================================
-# 5c. Condition Classifier
-# ============================================================
-
-def load_condition_classifier(classifier_path: str) -> dict:
+def load_condition_classifier(classifier_path: str):
     """Load condition classifier từ file .pkl"""
     import pickle
     with open(classifier_path, 'rb') as f:
@@ -455,24 +416,36 @@ def load_condition_classifier(classifier_path: str) -> dict:
 
 
 def predict_conditions(classifier_ckpt: dict, forecast: list) -> list:
-    """Dự đoán condition cho từng step trong forecast."""
-    model    = classifier_ckpt['model']
-    scaler   = classifier_ckpt['scaler']
-    le       = classifier_ckpt['label_encoder']
+    """
+    Dự đoán condition cho từng step trong forecast.
+ 
+    Args:
+        classifier_ckpt: dict từ load_condition_classifier()
+        forecast: list of dict, mỗi dict là 1 step forecast
+ 
+    Returns:
+        list of str: condition cho mỗi step
+    """
+    model = classifier_ckpt['model']
+    scaler = classifier_ckpt['scaler']
+    le = classifier_ckpt['label_encoder']
     features = classifier_ckpt['features']
-
+ 
     conditions = []
     for step in forecast:
         try:
-            x        = np.array([[step.get(f, 0.0) for f in features]], dtype=np.float32)
+            x = np.array([[step.get(f, 0.0) for f in features]], dtype=np.float32)
             x_scaled = scaler.transform(x)
             pred_idx = model.predict(x_scaled)[0]
-            conditions.append(le.inverse_transform([pred_idx])[0])
+            condition = le.inverse_transform([pred_idx])[0]
+            conditions.append(condition)
         except Exception as e:
             print(f"  [CLASSIFIER WARN] Step {step.get('horizon_step')}: {e}")
             conditions.append("Unknown")
-
+ 
     return conditions
+
+
 
 
 # ============================================================
@@ -481,12 +454,16 @@ def predict_conditions(classifier_ckpt: dict, forecast: list) -> list:
 
 UNITS = {
     'temperature':      'C',
+    # 'feels_like':       'C',
+    # 'dewpoint':         'C',
     'humidity':         '%',
     'wind_speed':       'km/h',
+    # 'gust_speed':       'km/h',
     'wind_direction':   'deg',
     'pressure':         'hPa',
     'precipitation':    'mm',
     'rain_probability': '%',
+    # 'uv_index':         '',
     'visibility':       'km',
     'cloud':            '%',
     'condition':        '',
@@ -505,7 +482,7 @@ def print_table(pred, cols, horizon, last_ts, title=''):
     print(header)
     print('  ' + '-' * (18 + 19 * len(cols)))
     for hi in range(horizon):
-        ts  = (last_ts + timedelta(hours=hi + 1)).strftime('%Y-%m-%d %H:%M')
+        ts = (last_ts + timedelta(hours=hi + 1)).strftime('%Y-%m-%d %H:%M')
         row = f"  {ts:<20s}"
         for ti in range(len(cols)):
             row += f"  {pred[hi, ti]:>17.3f}"
@@ -514,12 +491,7 @@ def print_table(pred, cols, horizon, last_ts, title=''):
 
 
 def save_json(pred_tcn, cols_tcn, pred_hard, cols_hard,
-              horizon, last_ts, output_path,
-              tcn_path, tcn_hard_path,
-              rain_prob_ckpt=None,
-              classifier_ckpt=None):
-
-    # Bước 1: build forecast steps từ 2 TCN
+              horizon, last_ts, output_path, tcn_path, tcn_hard_path, classifier_ckpt=None):
     forecast = []
     for hi in range(horizon):
         entry = {
@@ -532,49 +504,20 @@ def save_json(pred_tcn, cols_tcn, pred_hard, cols_hard,
             entry[c] = round(float(pred_hard[hi, ti]), 4)
         forecast.append(entry)
 
-    # Bước 2: thêm rain_probability từ classifier
-    if rain_prob_ckpt is not None:
-        rain_probs = predict_rain_probabilities(rain_prob_ckpt, forecast)
-        for hi, rp in enumerate(rain_probs):
-            forecast[hi]['rain_probability'] = rp
-        print(f"  [RAIN_PROB] Added rain_probability to {len(forecast)} steps")
-    else:
-        # Fallback: điền 0.0 nếu không có classifier
-        for hi in range(len(forecast)):
-            forecast[hi]['rain_probability'] = 0.0
-        print("  [RAIN_PROB] No classifier — rain_probability defaulted to 0.0")
-
-    # Bước 3: thêm condition (cần rain_probability đã có trong step)
     if classifier_ckpt is not None:
         conditions = predict_conditions(classifier_ckpt, forecast)
         for hi, cond in enumerate(conditions):
             forecast[hi]['condition'] = cond
 
-    # Bước 4: build result dict
-    all_target_cols = (
-        cols_tcn
-        + cols_hard
-        + ['rain_probability']
-        + (['condition'] if classifier_ckpt else [])
-    )
-
     result = {
         'generated_at':        datetime.now().isoformat(),
         'based_on_data_until': last_ts.isoformat(),
         'horizon_hours':       horizon,
-        'model_used':          'TCN + TCN-Hard + RainProbClassifier',
-        'models': {
-            'tcn':                  tcn_path,
-            'tcn_hard':             tcn_hard_path,
-            'rain_prob_classifier': rain_prob_ckpt is not None,
-            'condition_classifier': classifier_ckpt is not None,
-        },
-        'targets': {
-            'tcn':      cols_tcn,
-            'tcn_hard': cols_hard,
-        },
-        'target_cols': all_target_cols,
-        'forecast':    forecast,
+        'model_used':          'TCN + TCN-Hard (dual model)',
+        'models':              {'tcn': tcn_path, 'tcn_hard': tcn_hard_path},
+        'targets':             {'tcn': cols_tcn, 'tcn_hard': cols_hard},
+        'target_cols':         cols_tcn + cols_hard + (['condition'] if classifier_ckpt else []),
+        'forecast':            forecast,
     }
 
     with open(output_path, 'w', encoding='utf-8') as f:
@@ -600,10 +543,8 @@ def main():
     parser.add_argument('--output',   type=str, default='forecast_result.json')
     parser.add_argument('--device',   type=str, default='cpu',
                         help='cpu or cuda')
-    parser.add_argument('--classifier',          type=str, default=None,
+    parser.add_argument('--classifier', type=str, default=None,
                         help='Path to condition_classifier.pkl (optional)')
-    parser.add_argument('--rain_prob_classifier', type=str, default=None,
-                        help='Path to rain_prob_classifier.pkl (outputs 0/45/100%%)')
     args = parser.parse_args()
 
     print('=' * 76)
@@ -634,48 +575,37 @@ def main():
     pred_hard = pred_hard[:horizon]
     last_ts   = ts_tcn
 
-    # --- STEP 3: Print tables ---
+    # --- STEP 3: Print table ---
     print_table(pred_tcn,  cols_tcn,  horizon, last_ts,
                 title='TCN - temperature / humidity / wind_speed / ...')
     print_table(pred_hard, cols_hard, horizon, last_ts,
-                title='TCN-Hard - wind_direction / precipitation / cloud')
-
-    # --- STEP 3b: Load rain probability classifier ---
-    rain_prob_ckpt = None
-    if args.rain_prob_classifier:
-        print(f'\n[STEP 3b] Rain Prob Classifier  ->  {args.rain_prob_classifier}')
-        rain_prob_ckpt = load_rain_prob_classifier(args.rain_prob_classifier)
-
-    # --- STEP 3c: Load condition classifier ---
+                title='TCN-Hard - wind_direction / precipitation / cloud / ...')
+    
+    # --- STEP 3b: Load condition classifier ---
     classifier_ckpt = None
     if args.classifier:
-        print(f'\n[STEP 3c] Condition Classifier  ->  {args.classifier}')
+        print(f'\n[STEP 3b] Condition Classifier  ->  {args.classifier}')
         classifier_ckpt = load_condition_classifier(args.classifier)
 
     # --- STEP 4: Save JSON ---
-    result = save_json(
-        pred_tcn, cols_tcn,
-        pred_hard, cols_hard,
-        horizon, last_ts,
-        args.output,
-        args.tcn, args.tcn_hard,
-        rain_prob_ckpt=rain_prob_ckpt,
-        classifier_ckpt=classifier_ckpt,
-    )
+    save_json(pred_tcn, cols_tcn, pred_hard, cols_hard,
+              horizon, last_ts, args.output, args.tcn, args.tcn_hard,  classifier_ckpt=classifier_ckpt)
 
     # --- Summary h+1 ---
     print('\n' + '=' * 76)
     print('  SUMMARY - NEXT 1 HOUR (h+1)')
+    if classifier_ckpt:
+        with open(args.output, 'r', encoding='utf-8') as f:
+            result = json.load(f)
+        cond = result['forecast'][0].get('condition', 'N/A')
+        print(f'  {"condition":<30s}: {cond}')
     print('=' * 76)
-    step1 = result['forecast'][0]
-    for col in result['target_cols']:
-        u     = UNITS.get(col, '')
-        label = f'{col} ({u})' if u else col
-        val   = step1.get(col, 'N/A')
-        if isinstance(val, float):
-            print(f'  {label:<30s}: {val:.3f}')
-        else:
-            print(f'  {label:<30s}: {val}')
+    all_cols = cols_tcn + cols_hard
+    all_pred = np.concatenate([pred_tcn, pred_hard], axis=1)
+    for ti, c in enumerate(all_cols):
+        u = UNITS.get(c, '')
+        label = f'{c} ({u})' if u else c
+        print(f'  {label:<30s}: {all_pred[0, ti]:.3f}')
     print('=' * 76)
 
 
