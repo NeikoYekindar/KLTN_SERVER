@@ -530,34 +530,152 @@ RAIN_CONDITIONS = {
     'Moderate or heavy rain with thunder',
 }
 
+# ============================================================
+# Các tập condition theo loại
+# ============================================================
+
+RAIN_CONDITIONS = {
+    'Patchy rain possible',
+    'Light rain',
+    'Light rain shower',
+    'Moderate rain at times',
+    'Moderate rain',
+    'Heavy rain at times',
+    'Heavy rain',
+    'Moderate or heavy rain shower',
+    'Torrential rain shower',
+    'Thundery outbreaks possible',
+    'Patchy light rain',
+    'Patchy light rain with thunder',
+    'Patchy moderate rain',
+    'Moderate or heavy rain with thunder',
+}
+
+CLEAR_CONDITIONS  = {'Sunny', 'Clear'}
+CLOUDY_CONDITIONS = {'Partly Cloudy', 'Partly cloudy', 'Cloudy', 'Overcast'}
+MIST_CONDITIONS   = {'Mist', 'Fog', 'Freezing fog'}
+
+
+def _is_daytime(hour: int) -> bool:
+    return 6 <= hour < 18
+
+
+def _cloud_to_condition(cloud: float, hour: int) -> str:
+    """
+    Chuyển cloud % → condition dựa trên WMO standard + giờ trong ngày.
+    """
+    if cloud < 25:
+        return 'Sunny' if _is_daytime(hour) else 'Clear'
+    elif cloud < 50:
+        return 'Partly Cloudy'
+    elif cloud < 75:
+        return 'Cloudy'
+    else:
+        return 'Overcast'
+
+
+def _precip_to_rain_condition(precip: float) -> str:
+    """
+    Chuyển precipitation mm → loại mưa phù hợp.
+    """
+    if precip < 0.1:
+        return 'Patchy rain possible'
+    elif precip < 0.5:
+        return 'Light rain shower'
+    elif precip < 1.0:
+        return 'Moderate rain at times'
+    elif precip < 2.0:
+        return 'Heavy rain at times'
+    else:
+        return 'Heavy rain at times'
+
+
 def fix_consistency(forecast: list) -> list:
     """
-    Chỉ override khi mâu thuẫn cực đoan.
-    Không override rain_prob=45 vì đó là vùng uncertain.
+    Override condition khi có mâu thuẫn rõ ràng giữa
+    rain_probability, cloud, precipitation, visibility và giờ trong ngày.
+
+    Rules theo thứ tự ưu tiên:
+      1. Mist/Fog  : visibility thấp + humidity cao → override tất cả
+      2. rain_prob=0 + precip nhỏ : dùng cloud+giờ → Sunny/Cloudy
+      3. rain_prob=100 + precip lớn: dùng precip   → loại mưa cụ thể
+      4. rain_prob=45             : giữ nguyên classifier
     """
     fixed_count = 0
+
     for step in forecast:
-        rp     = step.get('rain_probability', 0)
-        cond   = step.get('condition', '')
-        cloud  = step.get('cloud', 50)
-        precip = step.get('precipitation', 0)
+        rp         = step.get('rain_probability', 0)
+        cond       = step.get('condition', '')
+        cloud      = step.get('cloud', 50)
+        precip     = step.get('precipitation', 0)
+        humidity   = step.get('humidity', 70)
+        visibility = step.get('visibility', 10)
+        hour       = pd.to_datetime(step['timestamp']).hour
 
-        # Chỉ fix khi rain_prob=0 VÀ precipitation cũng rất nhỏ
-        # → cả 2 model đều nói không mưa, condition classifier bị sai
-        if rp == 0 and precip < 0.05 and cond in RAIN_CONDITIONS:
-            if cloud < 25:
+        original = cond
+
+        # --------------------------------------------------------
+        # Rule 1: Mist / Fog
+        # visibility < 2km VÀ humidity > 90% → Mist bất kể rain_prob
+        # --------------------------------------------------------
+        if visibility < 2.0 and humidity > 90:
+            step['condition'] = 'Mist'
+
+        # --------------------------------------------------------
+        # Rule 2: Không mưa (rain_prob=0 VÀ precip nhỏ)
+        # → 2 model đều nói không mưa → dùng cloud + giờ
+        # --------------------------------------------------------
+        elif rp == 0 and precip < 0.05:
+            if cond in RAIN_CONDITIONS or cond in MIST_CONDITIONS:
+                step['condition'] = _cloud_to_condition(cloud, hour)
+
+            # Kiểm tra thêm: ban đêm không thể Sunny
+            elif cond in CLEAR_CONDITIONS and not _is_daytime(hour):
+                step['condition'] = 'Clear'
+
+            # Kiểm tra: ban ngày cloud < 25% nhưng classifier cho Cloudy
+            elif _is_daytime(hour) and cloud < 25 and cond not in CLEAR_CONDITIONS:
                 step['condition'] = 'Sunny'
-            elif cloud < 60:
-                step['condition'] = 'Partly Cloudy'
-            elif cloud < 85:
-                step['condition'] = 'Cloudy'
-            else:
-                step['condition'] = 'Overcast'
-            fixed_count += 1
 
-        # Khi rain_prob=100 VÀ precip cũng lớn mà condition không phải rain
-        elif rp == 100 and precip >= 0.1 and cond not in RAIN_CONDITIONS:
-            step['condition'] = 'Patchy rain possible'
+        # --------------------------------------------------------
+        # Rule 3: Chắc chắn mưa (rain_prob=100 VÀ precip đáng kể)
+        # → condition phải là rain condition cụ thể
+        # --------------------------------------------------------
+        elif rp == 100 and precip >= 0.1:
+            if cond not in RAIN_CONDITIONS:
+                # Classifier sai hoàn toàn → dùng precip để chọn loại mưa
+                step['condition'] = _precip_to_rain_condition(precip)
+            else:
+                # Classifier đúng loại mưa, nhưng kiểm tra độ nặng có hợp lý không
+                current_is_heavy = 'Heavy' in cond or 'Torrential' in cond
+                current_is_light = 'Light' in cond or 'Patchy' in cond
+
+                if precip >= 1.5 and current_is_light:
+                    # Precip lớn nhưng classifier nói light → nâng lên
+                    step['condition'] = _precip_to_rain_condition(precip)
+                elif precip < 0.1 and current_is_heavy:
+                    # Precip nhỏ nhưng classifier nói heavy → hạ xuống
+                    step['condition'] = _precip_to_rain_condition(precip)
+
+        # --------------------------------------------------------
+        # Rule 4: rain_prob=45 (uncertain)
+        # Chỉ fix các trường hợp rõ ràng sai
+        # --------------------------------------------------------
+        elif rp == 45:
+            # Ban đêm không thể Sunny
+            if cond == 'Sunny' and not _is_daytime(hour):
+                step['condition'] = 'Clear'
+            # Cloud rất thấp mà classifier nói Cloudy/Overcast
+            elif cloud < 20 and cond in ('Cloudy', 'Overcast'):
+                step['condition'] = _cloud_to_condition(cloud, hour)
+
+        # --------------------------------------------------------
+        # Rule chung: Sunny không thể xảy ra ban đêm (mọi rain_prob)
+        # --------------------------------------------------------
+        if step['condition'] == 'Sunny' and not _is_daytime(hour):
+            step['condition'] = 'Clear'
+
+        if step['condition'] != original:
             fixed_count += 1
 
     if fixed_count:
