@@ -29,6 +29,8 @@ Endpoints:
     GET  /api/current
     GET  /api/status
     POST /api/upload_csv
+    GET  /api/data/rows           ← trả về toàn bộ last_48h.csv dạng JSON
+    POST /api/forecast/custom     ← nhận rows đã sửa, lưu custom CSV, chạy lại inference
 =============================================================================
 """
 
@@ -37,6 +39,9 @@ import glob
 import io
 import json
 import os
+import subprocess
+import sys
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -51,8 +56,18 @@ EFS_BASE      = os.environ.get('EFS_BASE', '/mnt/efs/fs1')
 CSV_PATH      = f"{EFS_BASE}/data/last_48h.csv"
 FORECAST_PATH = f"{EFS_BASE}/data/forecast_result.json"
 HISTORY_DIR   = f"{EFS_BASE}/forecasts/history"
+CUSTOM_DIR    = f"{EFS_BASE}/data/custom"
 
-_started_at = datetime.now().isoformat()
+# Model paths — must match those passed to worker.py
+TCN_MODEL          = os.environ.get('TCN_MODEL',            'models/tcn_model.pth')
+TCN_HARD_MODEL     = os.environ.get('TCN_HARD_MODEL',       'models/tcn_hard_model.pth')
+CLASSIFIER         = os.environ.get('CLASSIFIER',           'models/condition_classifier.pkl')
+RAIN_PROB_CLS      = os.environ.get('RAIN_PROB_CLASSIFIER', 'models/rain_prob_classifier.pkl')
+INFERENCE_SCRIPT   = os.environ.get('INFERENCE_SCRIPT',     'server/inference_dual_tcn.py')
+INFERENCE_DEVICE   = os.environ.get('DEVICE',               'cpu')
+
+_started_at     = datetime.now().isoformat()
+_inference_lock = threading.Lock()
 
 # ============================================================
 # Flask App
@@ -237,6 +252,111 @@ def upload_csv():
     })
 
 
+# ----------------------------------------------------------
+# GET /api/data/rows
+# ----------------------------------------------------------
+@app.route('/api/data/rows', methods=['GET'])
+def get_data_rows():
+    """Trả về toàn bộ last_48h.csv dạng JSON để app hiển thị editor."""
+    if not os.path.exists(CSV_PATH):
+        return jsonify({'error': 'No sensor data yet'}), 404
+    try:
+        with open(CSV_PATH, 'r', encoding='utf-8') as f:
+            rows = list(csv.DictReader(f))
+        if not rows:
+            return jsonify({'error': 'CSV is empty'}), 404
+        return jsonify({'rows': rows, 'count': len(rows), 'source': CSV_PATH})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ----------------------------------------------------------
+# POST /api/forecast/custom
+# ----------------------------------------------------------
+@app.route('/api/forecast/custom', methods=['POST'])
+def custom_forecast():
+    """
+    Nhận rows đã chỉnh sửa từ app, lưu thành custom_YYYYMMDD_HHMMSS.csv,
+    chạy lại inference, trả về forecast mới.
+
+    Body JSON: { "rows": [ {timestamp, temperature, humidity, ...}, ... ] }
+    """
+    data = request.get_json(silent=True)
+    if not data or 'rows' not in data:
+        return jsonify({'error': 'Missing "rows" in request body'}), 400
+
+    rows = data['rows']
+    if not rows:
+        return jsonify({'error': '"rows" array is empty'}), 400
+
+    # --- Lưu custom CSV (không ghi đè last_48h.csv) ---
+    Path(CUSTOM_DIR).mkdir(parents=True, exist_ok=True)
+    ts_str      = datetime.now().strftime('%Y%m%d_%H%M%S')
+    custom_path = f"{CUSTOM_DIR}/custom_{ts_str}.csv"
+
+    fieldnames = list(rows[0].keys())
+    with open(custom_path, 'w', encoding='utf-8', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    print(f"[API] Custom CSV saved → {custom_path} ({len(rows)} rows)")
+
+    # --- Chạy inference với file custom ---
+    if not _inference_lock.acquire(blocking=False):
+        return jsonify({'error': 'Inference already running, try again shortly'}), 429
+
+    custom_forecast_path = f"{CUSTOM_DIR}/forecast_custom_{ts_str}.json"
+    try:
+        cmd = [
+            sys.executable, INFERENCE_SCRIPT,
+            '--tcn',      TCN_MODEL,
+            '--tcn_hard', TCN_HARD_MODEL,
+            '--csv',      custom_path,
+            '--output',   custom_forecast_path,
+            '--device',   INFERENCE_DEVICE,
+        ]
+        if CLASSIFIER:
+            cmd.extend(['--classifier', CLASSIFIER])
+        if RAIN_PROB_CLS:
+            cmd.extend(['--rain_prob_classifier', RAIN_PROB_CLS])
+
+        print(f"[API] Running custom inference: {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+
+        if result.returncode != 0:
+            print(f"[API] Inference stderr: {result.stderr[-400:]}")
+            # Trả về forecast cũ nếu inference thất bại
+            if os.path.exists(FORECAST_PATH):
+                with open(FORECAST_PATH, 'r', encoding='utf-8') as f:
+                    fallback = json.load(f)
+                return jsonify({
+                    'warning':     'Inference failed, returning last standard forecast',
+                    'custom_file': os.path.basename(custom_path),
+                    'forecast':    fallback.get('forecast', []),
+                }), 200
+
+            return jsonify({'error': f'Inference failed: {result.stderr[-200:]}'}), 500
+
+        with open(custom_forecast_path, 'r', encoding='utf-8') as f:
+            forecast_data = json.load(f)
+
+        print(f"[API] Custom forecast done → {custom_forecast_path}")
+        return jsonify({
+            'message':     'Custom prediction complete',
+            'custom_file': os.path.basename(custom_path),
+            'num_rows':    len(rows),
+            'forecast':    forecast_data.get('forecast', []),
+        })
+
+    except subprocess.TimeoutExpired:
+        return jsonify({'error': 'Inference timed out (>180s)'}), 504
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        _inference_lock.release()
+
+
 # ============================================================
 # Main
 # ============================================================
@@ -260,7 +380,9 @@ def main():
     print("       GET  /api/forecast/history/<run_id>")
     print("       GET  /api/current")
     print("       GET  /api/status")
-    print("       POST /api/upload_csv\n")
+    print("       POST /api/upload_csv")
+    print("       GET  /api/data/rows")
+    print("       POST /api/forecast/custom\n")
 
     app.run(host=api_host, port=api_port, debug=False, threaded=True)
 
