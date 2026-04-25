@@ -58,12 +58,15 @@ FORECAST_PATH = f"{EFS_BASE}/data/forecast_result.json"
 HISTORY_DIR   = f"{EFS_BASE}/forecasts/history"
 CUSTOM_DIR    = f"{EFS_BASE}/data/custom"
 
+# Absolute path to this file's directory — used to locate sibling scripts/models
+_HERE = Path(__file__).resolve().parent
+
 # Model paths — must match those passed to worker.py
-TCN_MODEL          = os.environ.get('TCN_MODEL',            'models/tcn_model.pth')
-TCN_HARD_MODEL     = os.environ.get('TCN_HARD_MODEL',       'models/tcn_hard_model.pth')
-CLASSIFIER         = os.environ.get('CLASSIFIER',           'models/condition_classifier.pkl')
-RAIN_PROB_CLS      = os.environ.get('RAIN_PROB_CLASSIFIER', 'models/rain_prob_classifier.pkl')
-INFERENCE_SCRIPT   = os.environ.get('INFERENCE_SCRIPT',     'server/inference_dual_tcn.py')
+TCN_MODEL          = os.environ.get('TCN_MODEL',            str(_HERE / '../models/tcn_model.pth'))
+TCN_HARD_MODEL     = os.environ.get('TCN_HARD_MODEL',       str(_HERE / '../models/tcn_hard_model.pth'))
+CLASSIFIER         = os.environ.get('CLASSIFIER',           str(_HERE / '../models/condition_classifier.pkl'))
+RAIN_PROB_CLS      = os.environ.get('RAIN_PROB_CLASSIFIER', str(_HERE / '../models/rain_prob_classifier.pkl'))
+INFERENCE_SCRIPT   = os.environ.get('INFERENCE_SCRIPT',     str(_HERE / 'inference_dual_tcn.py'))
 INFERENCE_DEVICE   = os.environ.get('DEVICE',               'cpu')
 
 _started_at     = datetime.now().isoformat()
