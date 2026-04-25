@@ -48,7 +48,7 @@ EFS_BASE = os.environ.get('EFS_BASE', '/mnt/efs/fs1')
 
 MODELS_DIR           = Path("models")
 DATA_DIR             = Path(EFS_BASE) / "data"
-CSV_PATH             = DATA_DIR / "last_48h.csv"
+CSV_PATH             = DATA_DIR / "last_96h.csv"
 FORECAST_PATH        = DATA_DIR / "forecast_result.json"
 HISTORY_DIR          = DATA_DIR / "history"
 FORECAST_HISTORY_DIR = Path(EFS_BASE) / "forecasts" / "history"
