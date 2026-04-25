@@ -39,9 +39,7 @@ import glob
 import io
 import json
 import os
-import subprocess
-import sys
-import threading
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 
@@ -58,19 +56,10 @@ FORECAST_PATH = f"{EFS_BASE}/data/forecast_result.json"
 HISTORY_DIR   = f"{EFS_BASE}/forecasts/history"
 CUSTOM_DIR    = f"{EFS_BASE}/data/custom"
 
-# Absolute path to this file's directory — used to locate sibling scripts/models
-_HERE = Path(__file__).resolve().parent
+# Worker internal URL — api calls worker's /infer endpoint for custom inference
+WORKER_URL  = os.environ.get('WORKER_URL', 'http://worker:8080')
 
-# Model paths — must match those passed to worker.py
-TCN_MODEL          = os.environ.get('TCN_MODEL',            str(_HERE / '../models/tcn_model.pth'))
-TCN_HARD_MODEL     = os.environ.get('TCN_HARD_MODEL',       str(_HERE / '../models/tcn_hard_model.pth'))
-CLASSIFIER         = os.environ.get('CLASSIFIER',           str(_HERE / '../models/condition_classifier.pkl'))
-RAIN_PROB_CLS      = os.environ.get('RAIN_PROB_CLASSIFIER', str(_HERE / '../models/rain_prob_classifier.pkl'))
-INFERENCE_SCRIPT   = os.environ.get('INFERENCE_SCRIPT',     str(_HERE / 'inference_dual_tcn.py'))
-INFERENCE_DEVICE   = os.environ.get('DEVICE',               'cpu')
-
-_started_at     = datetime.now().isoformat()
-_inference_lock = threading.Lock()
+_started_at = datetime.now().isoformat()
 
 # ============================================================
 # Flask App
@@ -280,7 +269,7 @@ def get_data_rows():
 def custom_forecast():
     """
     Nhận rows đã chỉnh sửa từ app, lưu thành custom_YYYYMMDD_HHMMSS.csv,
-    chạy lại inference, trả về forecast mới.
+    gọi worker's POST /infer để chạy inference, trả về forecast mới.
 
     Body JSON: { "rows": [ {timestamp, temperature, humidity, ...}, ... ] }
     """
@@ -292,72 +281,61 @@ def custom_forecast():
     if not rows:
         return jsonify({'error': '"rows" array is empty'}), 400
 
-    # --- Lưu custom CSV (không ghi đè last_48h.csv) ---
+    # --- Lưu custom CSV vào EFS (không ghi đè last_48h.csv) ---
     Path(CUSTOM_DIR).mkdir(parents=True, exist_ok=True)
-    ts_str      = datetime.now().strftime('%Y%m%d_%H%M%S')
-    custom_path = f"{CUSTOM_DIR}/custom_{ts_str}.csv"
+    ts_str               = datetime.now().strftime('%Y%m%d_%H%M%S')
+    custom_csv_path      = f"{CUSTOM_DIR}/custom_{ts_str}.csv"
+    custom_forecast_path = f"{CUSTOM_DIR}/forecast_custom_{ts_str}.json"
 
     fieldnames = list(rows[0].keys())
-    with open(custom_path, 'w', encoding='utf-8', newline='') as f:
+    with open(custom_csv_path, 'w', encoding='utf-8', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
 
-    print(f"[API] Custom CSV saved → {custom_path} ({len(rows)} rows)")
+    print(f"[API] Custom CSV saved → {custom_csv_path} ({len(rows)} rows)")
 
-    # --- Chạy inference với file custom ---
-    if not _inference_lock.acquire(blocking=False):
-        return jsonify({'error': 'Inference already running, try again shortly'}), 429
+    # --- Gọi worker's /infer endpoint (worker có PyTorch + models) ---
+    payload = json.dumps({
+        'csv_path':    custom_csv_path,
+        'output_path': custom_forecast_path,
+    }).encode()
 
-    custom_forecast_path = f"{CUSTOM_DIR}/forecast_custom_{ts_str}.json"
     try:
-        cmd = [
-            sys.executable, INFERENCE_SCRIPT,
-            '--tcn',      TCN_MODEL,
-            '--tcn_hard', TCN_HARD_MODEL,
-            '--csv',      custom_path,
-            '--output',   custom_forecast_path,
-            '--device',   INFERENCE_DEVICE,
-        ]
-        if CLASSIFIER:
-            cmd.extend(['--classifier', CLASSIFIER])
-        if RAIN_PROB_CLS:
-            cmd.extend(['--rain_prob_classifier', RAIN_PROB_CLS])
+        req = urllib.request.Request(
+            f"{WORKER_URL}/infer",
+            data=payload,
+            headers={'Content-Type': 'application/json'},
+            method='POST',
+        )
+        with urllib.request.urlopen(req, timeout=200) as resp:
+            result = json.loads(resp.read())
 
-        print(f"[API] Running custom inference: {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
-
-        if result.returncode != 0:
-            print(f"[API] Inference stderr: {result.stderr[-400:]}")
-            # Trả về forecast cũ nếu inference thất bại
-            if os.path.exists(FORECAST_PATH):
-                with open(FORECAST_PATH, 'r', encoding='utf-8') as f:
-                    fallback = json.load(f)
-                return jsonify({
-                    'warning':     'Inference failed, returning last standard forecast',
-                    'custom_file': os.path.basename(custom_path),
-                    'forecast':    fallback.get('forecast', []),
-                }), 200
-
-            return jsonify({'error': f'Inference failed: {result.stderr[-200:]}'}), 500
-
-        with open(custom_forecast_path, 'r', encoding='utf-8') as f:
-            forecast_data = json.load(f)
-
-        print(f"[API] Custom forecast done → {custom_forecast_path}")
+        print(f"[API] Custom inference done → {custom_forecast_path}")
         return jsonify({
             'message':     'Custom prediction complete',
-            'custom_file': os.path.basename(custom_path),
+            'custom_file': os.path.basename(custom_csv_path),
             'num_rows':    len(rows),
-            'forecast':    forecast_data.get('forecast', []),
+            'forecast':    result.get('forecast', []),
         })
 
-    except subprocess.TimeoutExpired:
-        return jsonify({'error': 'Inference timed out (>180s)'}), 504
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode(errors='replace')
+        print(f"[API] Worker /infer error {e.code}: {err_body}")
+        # Fallback: trả về forecast chuẩn nếu inference thất bại
+        if os.path.exists(FORECAST_PATH):
+            with open(FORECAST_PATH, 'r', encoding='utf-8') as f:
+                fallback = json.load(f)
+            return jsonify({
+                'warning':     f'Inference failed ({e.code}), returning last standard forecast',
+                'custom_file': os.path.basename(custom_csv_path),
+                'forecast':    fallback.get('forecast', []),
+            })
+        return jsonify({'error': f'Inference failed: {err_body[:200]}'}), 500
+
     except Exception as e:
+        print(f"[API] Worker call error: {e}")
         return jsonify({'error': str(e)}), 500
-    finally:
-        _inference_lock.release()
 
 
 # ============================================================

@@ -58,6 +58,7 @@ FORECAST_HISTORY_DIR = Path(EFS_BASE) / "forecasts" / "history"
 # ============================================================
 
 inference_lock = threading.Lock()
+_worker_args   = None   # set in main(), used by /infer HTTP handler
 
 worker_status = {
     'started_at':          None,
@@ -141,7 +142,7 @@ def process_incoming_data(payload_str: str, args):
 
         # --- Run inference ---
         print("[DATA] Calling run_inference...")
-        run_inference(args)
+        run_inference(args)   # no custom paths → normal MQTT run
 
     except json.JSONDecodeError as e:
         _log_error(f"JSON parse error: {e}")
@@ -153,26 +154,43 @@ def process_incoming_data(payload_str: str, args):
 # Inference
 # ============================================================
 
-def run_inference(args):
+def run_inference(args, csv_path=None, output_path=None):
+    """
+    Run the inference subprocess.
+    - csv_path / output_path: override defaults (used for custom simulation).
+      When overriding, the lock is acquired with a blocking timeout so the
+      caller can wait for the result.  Normal MQTT calls pass no overrides
+      and use non-blocking acquire (skip if busy).
+    Returns (success: bool, message: str).
+    """
     global worker_status
 
-    print(f"[INFERENCE] run_inference() called. CSV exists={CSV_PATH.exists()}, lock_locked={inference_lock.locked()}")
+    is_custom        = csv_path is not None
+    effective_csv    = Path(csv_path)    if is_custom else CSV_PATH
+    effective_output = Path(output_path) if output_path else FORECAST_PATH
 
-    if not CSV_PATH.exists():
-        print("[WARN] No CSV file found, skipping inference")
-        return
+    print(f"[INFERENCE] called. csv={effective_csv}, lock_locked={inference_lock.locked()}")
 
-    if not inference_lock.acquire(blocking=False):
-        print("[WARN] Inference already running (lock held), skipping new request")
-        return
+    if not effective_csv.exists():
+        print("[WARN] CSV not found, skipping")
+        return False, "CSV file not found"
+
+    if is_custom:
+        acquired = inference_lock.acquire(blocking=True, timeout=200)
+    else:
+        acquired = inference_lock.acquire(blocking=False)
+
+    if not acquired:
+        print("[WARN] Inference already running, skipping")
+        return False, "Inference already running"
 
     try:
         cmd = [
             sys.executable, args.inference_script,
             '--tcn',      args.tcn,
             '--tcn_hard', args.tcn_hard,
-            '--csv',      str(CSV_PATH),
-            '--output',   str(FORECAST_PATH),
+            '--csv',      str(effective_csv),
+            '--output',   str(effective_output),
             '--device',   args.device,
         ]
         if args.classifier:
@@ -191,11 +209,11 @@ def run_inference(args):
             stdout_tail = result.stdout[-600:] if len(result.stdout) > 600 else result.stdout
             print(stdout_tail)
 
-            if FORECAST_PATH.exists():
+            if effective_output.exists() and not is_custom:
                 ts_hist   = datetime.now().strftime('%Y%m%d_%H%M%S')
                 hist_file = FORECAST_HISTORY_DIR / f"forecast_{ts_hist}.json"
 
-                with open(FORECAST_PATH, 'r', encoding='utf-8') as f:
+                with open(effective_output, 'r', encoding='utf-8') as f:
                     forecast_data = json.load(f)
 
                 history_entry = {
@@ -203,24 +221,28 @@ def run_inference(args):
                     'saved_at': datetime.now().isoformat(),
                     **forecast_data,
                 }
-                hist_content = json.dumps(history_entry, ensure_ascii=False, indent=2)
-
-                hist_file.write_text(hist_content, encoding='utf-8')
+                hist_file.write_text(json.dumps(history_entry, ensure_ascii=False, indent=2), encoding='utf-8')
 
                 n = len(forecast_data.get('forecast', []))
                 print(f"[INFERENCE] {n} steps saved → {hist_file}")
 
-            worker_status['last_inference_run']  = datetime.now().isoformat()
-            worker_status['last_inference_time'] = round(elapsed, 2)
-            worker_status['inference_count']    += 1
+                worker_status['last_inference_run']  = datetime.now().isoformat()
+                worker_status['last_inference_time'] = round(elapsed, 2)
+                worker_status['inference_count']    += 1
+
+            return True, str(effective_output)
 
         else:
-            _log_error(f"Inference failed (rc={result.returncode}): {result.stderr[-400:]}")
+            msg = f"Inference failed (rc={result.returncode}): {result.stderr[-400:]}"
+            _log_error(msg)
+            return False, msg
 
     except subprocess.TimeoutExpired:
         _log_error("Inference timeout (>180s)")
+        return False, "Timeout (>180s)"
     except Exception as e:
         _log_error(f"run_inference error: {e}")
+        return False, str(e)
     finally:
         inference_lock.release()
 
@@ -281,24 +303,58 @@ HEALTH_PORT = int(os.environ.get('HEALTH_PORT', 8080))
 def _start_health_server():
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
-            body = json.dumps({
-                'status':           'ok',
-                'started_at':       worker_status.get('started_at'),
-                'inference_count':  worker_status.get('inference_count', 0),
-                'last_inference':   worker_status.get('last_inference_run'),
-            }).encode()
-            self.send_response(200)
+            self._send(200, {
+                'status':          'ok',
+                'started_at':      worker_status.get('started_at'),
+                'inference_count': worker_status.get('inference_count', 0),
+                'last_inference':  worker_status.get('last_inference_run'),
+            })
+
+        def do_POST(self):
+            if self.path != '/infer':
+                self._send(404, {'error': 'Not found'})
+                return
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                body   = json.loads(self.rfile.read(length))
+                csv_path    = body.get('csv_path')
+                output_path = body.get('output_path')
+
+                if not csv_path or not output_path:
+                    self._send(400, {'error': 'Missing csv_path or output_path'})
+                    return
+
+                if _worker_args is None:
+                    self._send(503, {'error': 'Worker not ready'})
+                    return
+
+                print(f"[HEALTH] /infer request — csv={csv_path}")
+                ok, msg = run_inference(_worker_args, csv_path=csv_path, output_path=output_path)
+
+                if ok and os.path.exists(output_path):
+                    with open(output_path, 'r', encoding='utf-8') as f:
+                        fd = json.load(f)
+                    self._send(200, {'forecast': fd.get('forecast', [])})
+                else:
+                    self._send(500, {'error': msg})
+
+            except Exception as e:
+                self._send(500, {'error': str(e)})
+
+        def _send(self, status, body_dict):
+            body = json.dumps(body_dict).encode()
+            self.send_response(status)
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
             self.wfile.write(body)
 
         def log_message(self, *args):
-            pass  # tắt access log
+            pass
 
     server = HTTPServer(('0.0.0.0', HEALTH_PORT), Handler)
     t = threading.Thread(target=server.serve_forever, daemon=True, name="health")
     t.start()
-    print(f"[HEALTH] Listening on port {HEALTH_PORT}")
+    print(f"[HEALTH] Listening on port {HEALTH_PORT} (GET /health, POST /infer)")
 
 
 # ============================================================
@@ -355,6 +411,9 @@ def main():
     print(f"  Device     : {args.device}")
     print(f"  EFS Base   : {EFS_BASE}")
     print("=" * 60)
+
+    global _worker_args
+    _worker_args = args
 
     worker_status['started_at'] = datetime.now().isoformat()
 
