@@ -15,10 +15,10 @@ Env vars (optional):
 
 Forecast step fields:
     timestamp, horizon_step,
-    temperature, humidity, wind_speed, pressure, visibility,  ← TCN Model 1
-    wind_direction, precipitation, cloud,                     ← TCN Hard Model
-    rain_probability,                                         ← Rain Prob Classifier (0/45/100)
-    condition                                                  ← Condition Classifier
+    temperature, humidity, wind_speed, pressure, uv_index, visibility,  ← TCN Model 1
+    wind_direction, precipitation, cloud,                                ← TCN Hard Model
+    rain_probability,                                                    ← Rain Prob Classifier (0/45/100)
+    condition                                                             ← Condition Classifier
 
 Endpoints:
     GET  /api/forecast
@@ -189,10 +189,12 @@ def get_status():
             steps = fd.get('forecast', [])
             # Kiểm tra rain_probability có trong forecast không
             has_rain_prob = any('rain_probability' in s for s in steps)
+            has_uv_index  = any('uv_index' in s for s in steps)
             forecast_info = {
-                'steps':        len(steps),
+                'steps':               len(steps),
                 'has_rain_probability': has_rain_prob,
-                'generated_at': fd.get('generated_at'),
+                'has_uv_index':        has_uv_index,
+                'generated_at':        fd.get('generated_at'),
             }
         except Exception:
             pass

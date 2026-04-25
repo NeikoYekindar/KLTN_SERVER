@@ -6,7 +6,7 @@ Two models with different architectures:
 
   TCNForecaster        (tcn_model_24h.pth  - train_new.py)
       targets : temperature, humidity, wind_speed, pressure,
-                uv_index, dewpoint, visibility
+                uv_index, visibility
       scaler  : target_scaler_mean / target_scaler_scale  (StandardScaler)
 
   HardTargetForecaster (tcn_hard_model_24h.pth - train_tcn_hard.py)
@@ -485,6 +485,7 @@ UNITS = {
     'wind_speed':       'km/h',
     'wind_direction':   'deg',
     'pressure':         'hPa',
+    'uv_index':         'index',
     'precipitation':    'mm',
     'rain_probability': '%',
     'visibility':       'km',

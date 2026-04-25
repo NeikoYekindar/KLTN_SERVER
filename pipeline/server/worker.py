@@ -1,6 +1,6 @@
 """
 =============================================================================
-Inference Worker  —  MQTT + Dual TCN + GCS Upload
+Inference Worker  —  MQTT + Dual TCN (w/ uv_index) + GCS Upload
 =============================================================================
 Component 1: receive data from MQTT, run inference, save local + upload GCS.
 No Flask API — background worker only.
