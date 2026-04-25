@@ -29,7 +29,7 @@ Endpoints:
     GET  /api/current
     GET  /api/status
     POST /api/upload_csv
-    GET  /api/data/rows           ← trả về toàn bộ last_48h.csv dạng JSON
+    GET  /api/data/rows           ← trả về toàn bộ last.csv dạng JSON
     POST /api/forecast/custom     ← nhận rows đã sửa, lưu custom CSV, chạy lại inference
 =============================================================================
 """
@@ -51,7 +51,7 @@ from flask_cors import CORS
 # ============================================================
 
 EFS_BASE      = os.environ.get('EFS_BASE', '/mnt/efs/fs1')
-CSV_PATH      = f"{EFS_BASE}/data/last_48h.csv"
+CSV_PATH      = f"{EFS_BASE}/data/last.csv"
 FORECAST_PATH = f"{EFS_BASE}/data/forecast_result.json"
 HISTORY_DIR   = f"{EFS_BASE}/forecasts/history"
 CUSTOM_DIR    = f"{EFS_BASE}/data/custom"
@@ -249,7 +249,7 @@ def upload_csv():
 # ----------------------------------------------------------
 @app.route('/api/data/rows', methods=['GET'])
 def get_data_rows():
-    """Trả về toàn bộ last_48h.csv dạng JSON để app hiển thị editor."""
+    """Trả về toàn bộ last.csv dạng JSON để app hiển thị editor."""
     if not os.path.exists(CSV_PATH):
         return jsonify({'error': 'No sensor data yet'}), 404
     try:
@@ -281,7 +281,7 @@ def custom_forecast():
     if not rows:
         return jsonify({'error': '"rows" array is empty'}), 400
 
-    # --- Lưu custom CSV vào EFS (không ghi đè last_48h.csv) ---
+    # --- Lưu custom CSV vào EFS (không ghi đè last.csv) ---
     Path(CUSTOM_DIR).mkdir(parents=True, exist_ok=True)
     ts_str               = datetime.now().strftime('%Y%m%d_%H%M%S')
     custom_csv_path      = f"{CUSTOM_DIR}/custom_{ts_str}.csv"
