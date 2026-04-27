@@ -179,24 +179,8 @@ void OnNewForecast(ForecastResult forecast)
 
 
 
-python3 server/server.py     --broker localhost     --mqtt-port 1883     --tcn models/tcn_model.pth     --arima models/arima_model.pkl     --inference-script server/inference.py     --ensemble_json models/ensemble_stacking_metrics.json     --api-port 5000
-
-
-python3 server/server.py \
-    --broker localhost \
-    --tcn models/tcn_model.pth \
-    --lstm models/lstm_model.pth \
-    --arima models/arima_model.pkl \
-    --ensemble_json_tcn models/ensemble_stacking_metrics.json \
-    --ensemble_json_lstm models/ensemble_lstm_SGN_metrics.json \
-    --inference-script-tcn server/inference.py \
-    --inference-script-lstm server/inference_lstm_arima.py \
-    --api-port 5000
-
-python server/server_dual_tcn.py  --broker   localhost --tcn      models/tcn_model.pth   --tcn_hard models/tcn_hard_model.pth     --api-port 5000
-
-# lấy cái này 
-python server/server_dual_tcn.py  --broker   localhost --tcn      models/tcn_model.pth   --tcn_hard models/tcn_hard_model.pth --classifier models/condition_classifier.pkl    --api-port 5000
+# chạy chính
+python server/server.py     --tcn      models/tcn_model.pth     --tcn_hard models/tcn_hard_model.pth     --classifier        models/condition_classifier.pkl    --rain_prob_classifier models/rain_prob_classifier.pkl
 
 
     # ===== TCN + ARIMA =====
